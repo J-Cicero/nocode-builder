@@ -5,8 +5,10 @@ from alembic import context
 # Import de ta config et de tes modèles
 from app.core.config import settings
 from app.core.database import Base
-from app.modules.auth.models import User  # ← importe chaque modèle ici
+from app.modules.auth.models import User
 from app.modules.projects.models import Project
+from app.modules.schema_builder.models import Schema, TableSchema, Field, Relation
+from app.modules.data_engine.models import DonneeProjet, HistoriqueDonnee
 
 config = context.config
 

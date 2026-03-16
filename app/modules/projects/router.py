@@ -33,7 +33,12 @@ async def get_current_user(
     return user
 
 
-@router.get("/", response_model=ProjectListResponse, summary="Mes projets")
+@router.get(
+    "/", 
+    response_model=ProjectListResponse, 
+    summary="Récupérer mes projets",
+    description="Récupère la liste complète de tous les projets appartenant à l'utilisateur connecté, avec le nombre total de projets."
+)
 async def get_my_projects(
     current_user: User = Depends(get_current_user),
     service: ProjectService = Depends(get_project_service),
@@ -41,7 +46,13 @@ async def get_my_projects(
     return await service.get_my_projects(current_user)
 
 
-@router.post("/", response_model=ProjectResponse, status_code=201, summary="Créer un projet")
+@router.post(
+    "/", 
+    response_model=ProjectResponse, 
+    status_code=201, 
+    summary="Créer un nouveau projet",
+    description="Crée un nouveau projet avec les informations fournies. Le projet est automatiquement assigné à l'utilisateur connecté et un slug unique est généré."
+)
 async def create_project(
     data: ProjectCreate,
     current_user: User = Depends(get_current_user),
@@ -50,7 +61,12 @@ async def create_project(
     return await service.create_project(data, current_user)
 
 
-@router.get("/{tracking_id}", response_model=ProjectResponse, summary="Détails d'un projet")
+@router.get(
+    "/{tracking_id}", 
+    response_model=ProjectResponse, 
+    summary="Récupérer les détails d'un projet",
+    description="Récupère les informations complètes d'un projet spécifique. L'utilisateur doit être propriétaire ou le projet doit être public."
+)
 async def get_project(
     tracking_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -59,7 +75,12 @@ async def get_project(
     return await service.get_project(tracking_id, current_user)
 
 
-@router.patch("/{tracking_id}", response_model=ProjectResponse, summary="Modifier un projet")
+@router.patch(
+    "/{tracking_id}", 
+    response_model=ProjectResponse, 
+    summary="Modifier un projet",
+    description="Modifie les informations d'un projet (nom, description, configuration, etc.). Seul le propriétaire ou un administrateur peut effectuer cette action."
+)
 async def update_project(
     tracking_id: UUID,
     data: ProjectUpdate,
@@ -69,7 +90,12 @@ async def update_project(
     return await service.update_project(tracking_id, data, current_user)
 
 
-@router.patch("/{tracking_id}/status", response_model=ProjectResponse, summary="Changer le statut")
+@router.patch(
+    "/{tracking_id}/status", 
+    response_model=ProjectResponse, 
+    summary="Modifier le statut d'un projet",
+    description="Change le statut d'un projet (brouillon, publié ou archivé). Seul le propriétaire ou un administrateur peut effectuer cette action."
+)
 async def update_status(
     tracking_id: UUID,
     data: ProjectStatusUpdate,
@@ -79,7 +105,13 @@ async def update_status(
     return await service.update_status(tracking_id, data, current_user)
 
 
-@router.post("/{tracking_id}/duplicate", response_model=ProjectResponse, status_code=201, summary="Dupliquer")
+@router.post(
+    "/{tracking_id}/duplicate", 
+    response_model=ProjectResponse, 
+    status_code=201, 
+    summary="Dupliquer un projet",
+    description="Crée une copie complète d'un projet existant. La copie est assignée à l'utilisateur connecté et le statut est remis à 'brouillon'."
+)
 async def duplicate_project(
     tracking_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -88,7 +120,12 @@ async def duplicate_project(
     return await service.duplicate_project(tracking_id, current_user)
 
 
-@router.delete("/{tracking_id}", status_code=204, summary="Supprimer un projet")
+@router.delete(
+    "/{tracking_id}", 
+    status_code=204, 
+    summary="Supprimer un projet",
+    description="Supprime complètement un projet de la base de données. Seul le propriétaire ou un administrateur peut effectuer cette action. Cette action est irréversible."
+)
 async def delete_project(
     tracking_id: UUID,
     current_user: User = Depends(get_current_user),
