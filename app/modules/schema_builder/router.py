@@ -19,7 +19,7 @@ from app.modules.projects.service import ProjectService
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
 
-router = APIRouter(prefix="/schema", tags=["📊 Constructeur de Schéma"])
+router = APIRouter(prefix="/schema", tags=[" Constructeur de Schéma"])
 
 
 def get_schema_service(db: AsyncSession = Depends(get_db)) -> SchemaService:
@@ -63,10 +63,6 @@ async def get_schema(
     schema = await service.get_or_create_schema(project_id)
     return schema
 
-
-# ═══════════════════════════════════════════════════════════════
-#  TABLES
-# ═══════════════════════════════════════════════════════════════
 
 @router.get(
     "/projects/{project_id}/tables",
@@ -127,10 +123,6 @@ async def delete_table(
     await service.delete_table(table_id)
 
 
-# ═══════════════════════════════════════════════════════════════
-#  CHAMPS (Fields)
-# ═══════════════════════════════════════════════════════════════
-
 @router.get(
     "/tables/{table_id}/fields",
     response_model=list[FieldResponse],
@@ -189,10 +181,6 @@ async def delete_field(
 ):
     await service.delete_field(field_id)
 
-
-# ═══════════════════════════════════════════════════════════════
-#  RELATIONS
-# ═══════════════════════════════════════════════════════════════
 
 @router.get(
     "/projects/{project_id}/relations",

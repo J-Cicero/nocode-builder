@@ -19,10 +19,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/api/v1")
-app.include_router(projects_router, prefix="/api/v1")
-app.include_router(schema_router, prefix="/api/v1")
-app.include_router(data_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api")
+app.include_router(projects_router, prefix="/api")
+app.include_router(schema_router, prefix="/api")
+app.include_router(data_router, prefix="/api")
 
 
 @app.get("/", tags=["Health"])

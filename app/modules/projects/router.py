@@ -13,7 +13,7 @@ from app.modules.projects.repository import ProjectRepository
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
 
-router = APIRouter(prefix="/projects", tags=["🚀 Projets"])
+router = APIRouter(prefix="/projects", tags=[" Projets"])
 
 
 def get_project_service(db: AsyncSession = Depends(get_db)) -> ProjectService:

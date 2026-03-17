@@ -9,7 +9,7 @@ from app.modules.data_engine.service import DataEngineService
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
 
-router = APIRouter(prefix="/data", tags=["💾 Data Engine"])
+router = APIRouter(prefix="/data", tags=[" Data Engine"])
 
 
 def get_data_service(db: AsyncSession = Depends(get_db)) -> DataEngineService:
