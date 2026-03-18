@@ -21,8 +21,8 @@ class DonneeUpdate(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 class DonneeResponse(BaseModel):
-    id: UUID
-    project_id: int
+    tracking_id: UUID
+    project_id: UUID
     table_name: str
     content: Dict[str, Any]
     created_by: Optional[UUID]
@@ -43,7 +43,7 @@ class DonneeListResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 class HistoriqueResponse(BaseModel):
-    id: UUID
+    tracking_id: UUID
     ancien_contenu: Dict[str, Any]
     nouveau_contenu: Dict[str, Any]
     modifie_par: Optional[UUID]

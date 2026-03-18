@@ -54,8 +54,8 @@ class FieldResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 class RelationCreate(BaseModel):
-    source_table_id: int
-    target_table_id: int
+    source_table_id: UUID
+    target_table_id: UUID
     name: str = Field(..., min_length=2, max_length=100)
     type: RelationType = RelationType.ONE_TO_MANY
     description: Optional[str] = None
@@ -73,8 +73,8 @@ class RelationUpdate(BaseModel):
 
 class RelationResponse(BaseModel):
     tracking_id: UUID
-    source_table_id: int
-    target_table_id: int
+    source_table_id: UUID
+    target_table_id: UUID
     name: str
     type: RelationType
     description: Optional[str]
@@ -128,7 +128,7 @@ class TableSchemaDetailResponse(TableSchemaResponse):
 
 class SchemaResponse(BaseModel):
     tracking_id: UUID
-    project_id: int
+    project_id: UUID
     created_at: datetime
     updated_at: Optional[datetime]
 

@@ -10,13 +10,13 @@ class SchemaRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_project_id(self, project_id: int) -> Schema | None:
+    async def get_by_project_id(self, project_id: UUID) -> Schema | None:
         result = await self.db.execute(
             select(Schema).where(Schema.project_id == project_id)
         )
         return result.scalar_one_or_none()
 
-    async def create_for_project(self, project_id: int) -> Schema:
+    async def create_for_project(self, project_id: UUID) -> Schema:
         schema = Schema(project_id=project_id)
         self.db.add(schema)
         await self.db.flush()
@@ -35,7 +35,7 @@ class TableSchemaRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_by_schema(self, schema_id: int) -> list[TableSchema]:
+    async def get_all_by_schema(self, schema_id: UUID) -> list[TableSchema]:
         result = await self.db.execute(
             select(TableSchema)
             .where(TableSchema.schema_id == schema_id)
@@ -43,7 +43,7 @@ class TableSchemaRepository:
         )
         return list(result.scalars().all())
 
-    async def get_by_name_and_schema(self, name: str, schema_id: int) -> TableSchema | None:
+    async def get_by_name_and_schema(self, name: str, schema_id: UUID) -> TableSchema | None:
         result = await self.db.execute(
             select(TableSchema).where(
                 (TableSchema.schema_id == schema_id) & (TableSchema.name == name)
@@ -51,7 +51,7 @@ class TableSchemaRepository:
         )
         return result.scalar_one_or_none()
 
-    async def create(self, schema_id: int, name: str, display_name: str | None, description: str | None, icon: str | None) -> TableSchema:
+    async def create(self, schema_id: UUID, name: str, display_name: str | None, description: str | None, icon: str | None) -> TableSchema:
         table = TableSchema(
             schema_id=schema_id,
             name=name,
@@ -87,7 +87,7 @@ class FieldRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_by_table(self, table_id: int) -> list[Field]:
+    async def get_all_by_table(self, table_id: UUID) -> list[Field]:
         result = await self.db.execute(
             select(Field)
             .where(Field.table_id == table_id)
@@ -95,7 +95,7 @@ class FieldRepository:
         )
         return list(result.scalars().all())
 
-    async def create(self, table_id: int, name: str, type: str, display_name: str | None, 
+    async def create(self, table_id: UUID, name: str, type: str, display_name: str | None, 
                     description: str | None, required: bool, unique: bool, indexed: bool, config: dict) -> Field:
         field = Field(
             table_id=table_id,
@@ -136,7 +136,7 @@ class RelationRepository:
         )
         return result.scalar_one_or_none()
 
-    async def get_all_by_schema(self, schema_id: int) -> list[Relation]:
+    async def get_all_by_schema(self, schema_id: UUID) -> list[Relation]:
         result = await self.db.execute(
             select(Relation)
             .where(Relation.schema_id == schema_id)
@@ -144,7 +144,7 @@ class RelationRepository:
         )
         return list(result.scalars().all())
 
-    async def create(self, schema_id: int, source_table_id: int, target_table_id: int, 
+    async def create(self, schema_id: UUID, source_table_id: UUID, target_table_id: UUID, 
                     name: str, type: str, description: str | None, source_key: str, target_key: str) -> Relation:
         relation = Relation(
             schema_id=schema_id,

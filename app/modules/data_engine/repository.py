@@ -10,13 +10,13 @@ class DonneeRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_by_id(self, donnee_id: UUID) -> DonneeProjet | None:
+    async def get_by_tracking_id(self, tracking_id: UUID) -> DonneeProjet | None:
         result = await self.db.execute(
-            select(DonneeProjet).where(DonneeProjet.id == donnee_id)
+            select(DonneeProjet).where(DonneeProjet.tracking_id == tracking_id)
         )
         return result.scalar_one_or_none()
 
-    async def get_by_project_and_table(self, project_id: int, table_name: str) -> list[DonneeProjet]:
+    async def get_by_project_and_table(self, project_id: UUID, table_name: str) -> list[DonneeProjet]:
         result = await self.db.execute(
             select(DonneeProjet)
             .where(
@@ -29,7 +29,7 @@ class DonneeRepository:
         )
         return list(result.scalars().all())
 
-    async def create(self, project_id: int, table_name: str, content: dict, created_by: UUID | None = None) -> DonneeProjet:
+    async def create(self, project_id: UUID, table_name: str, content: dict, created_by: UUID | None = None) -> DonneeProjet:
         donnee = DonneeProjet(
             project_id=project_id,
             table_name=table_name,

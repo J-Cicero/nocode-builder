@@ -29,7 +29,7 @@ class Schema(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, unique=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.tracking_id"), nullable=False, unique=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -46,7 +46,7 @@ class TableSchema(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    schema_id = Column(Integer, ForeignKey("schemas.id"), nullable=False)
+    schema_id = Column(UUID(as_uuid=True), ForeignKey("schemas.tracking_id"), nullable=False)
     
     name = Column(String(100), nullable=False)
     display_name = Column(String(200), nullable=True)
@@ -78,7 +78,7 @@ class Field(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    table_id = Column(Integer, ForeignKey("tables_schema.id"), nullable=False)
+    table_id = Column(UUID(as_uuid=True), ForeignKey("tables_schema.tracking_id"), nullable=False)
     
     name = Column(String(100), nullable=False)
     display_name = Column(String(200), nullable=True)
@@ -106,10 +106,10 @@ class Relation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    schema_id = Column(Integer, ForeignKey("schemas.id"), nullable=False)
+    schema_id = Column(UUID(as_uuid=True), ForeignKey("schemas.tracking_id"), nullable=False)
     
-    source_table_id = Column(Integer, ForeignKey("tables_schema.id"), nullable=False)
-    target_table_id = Column(Integer, ForeignKey("tables_schema.id"), nullable=False)
+    source_table_id = Column(UUID(as_uuid=True), ForeignKey("tables_schema.tracking_id"), nullable=False)
+    target_table_id = Column(UUID(as_uuid=True), ForeignKey("tables_schema.tracking_id"), nullable=False)
     
     name = Column(String(100), nullable=False)
     type = Column(Enum(RelationType), default=RelationType.ONE_TO_MANY, nullable=False)

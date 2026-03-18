@@ -10,8 +10,9 @@ import uuid
 class DonneeProjet(Base):
     __tablename__ = "donnees_projets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False, index=True)
+    id = Column(Integer, primary_key=True, index=True)
+    tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.tracking_id"), nullable=False, index=True)
     table_name = Column(String(100), nullable=False)
     content = Column(JSON, nullable=False)
     
@@ -29,8 +30,9 @@ class DonneeProjet(Base):
 class HistoriqueDonnee(Base):
     __tablename__ = "historique_donnees"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    donnee_id = Column(UUID(as_uuid=True), ForeignKey("donnees_projets.id"), nullable=False)
+    id = Column(Integer, primary_key=True, index=True)
+    tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
+    donnee_id = Column(UUID(as_uuid=True), ForeignKey("donnees_projets.tracking_id"), nullable=False)
     
     ancien_contenu = Column(JSON, nullable=False)
     nouveau_contenu = Column(JSON, nullable=False)
