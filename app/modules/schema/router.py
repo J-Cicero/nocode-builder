@@ -50,8 +50,7 @@ async def get_schema(
     current_user: User = Depends(get_current_user),
     service: SchemaService = Depends(get_schema_service),
 ):
-    schema = await service.get_or_create_schema(project_id)
-    return schema
+    return await service.get_schema_detail(project_id)
 
 
 @router.get(

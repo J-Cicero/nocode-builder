@@ -6,7 +6,8 @@ from app.modules.schema.repository import (
 )
 from app.modules.schema.schema import (
     FieldCreate, FieldUpdate, TableSchemaCreate, TableSchemaUpdate,
-    RelationCreate, RelationUpdate
+    RelationCreate, RelationUpdate,
+    FieldResponse, TableSchemaDetailResponse, RelationResponse, SchemaDetailResponse
 )
 from app.modules.projects.repository import ProjectRepository
 
@@ -60,6 +61,37 @@ class SchemaService:
             schema = await self.schema_repo.create_for_project(project_id)
         return schema
 
+    async def get_schema_detail(self, project_id: UUID) -> SchemaDetailResponse:
+        """Retourne un schéma fully-hydrated sans lazy loading SQLAlchemy."""
+        schema = await self.get_or_create_schema(project_id)
+        tables = await self.table_repo.get_all_by_schema(schema.tracking_id)
+        relations = await self.relation_repo.get_all_by_schema(schema.tracking_id)
+
+        table_details = []
+        for table in tables:
+            fields = await self.field_repo.get_all_by_table(table.tracking_id)
+            table_details.append(
+                TableSchemaDetailResponse(
+                    tracking_id=table.tracking_id,
+                    name=table.name,
+                    display_name=table.display_name,
+                    description=table.description,
+                    icon=table.icon,
+                    created_at=table.created_at,
+                    updated_at=table.updated_at,
+                    fields=[FieldResponse.model_validate(field) for field in fields],
+                )
+            )
+
+        return SchemaDetailResponse(
+            tracking_id=schema.tracking_id,
+            project_id=schema.project_id,
+            created_at=schema.created_at,
+            updated_at=schema.updated_at,
+            tables=table_details,
+            relations=[RelationResponse.model_validate(rel) for rel in relations],
+        )
+
     # ═══════════════════════════════════════════════════════════════
     #  TABLES
     # ═══════════════════════════════════════════════════════════════
@@ -103,7 +135,7 @@ class SchemaService:
     async def get_all_fields(self, table_id: UUID):
         """Liste tous les champs d'une table."""
         table = await self._get_table_or_404(table_id)
-        return await self.field_repo.get_all_by_table(table.id)
+        return await self.field_repo.get_all_by_table(table.tracking_id)
 
     async def create_field(self, table_id: UUID, data: FieldCreate):
         """Ajoute un champ à une table."""
