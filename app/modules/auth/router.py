@@ -151,6 +151,15 @@ async def refresh(
     return await service.refresh_tokens(data.refresh_token)
 
 
+@router.get(
+    "/me",
+    response_model=UserResponse,
+    summary="Profil de l'utilisateur connecté",
+)
+async def me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
 @router.patch(
     "/users/{tracking_id}/deactivate",
     response_model=UserResponse,

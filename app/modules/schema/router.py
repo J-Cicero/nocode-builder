@@ -46,7 +46,7 @@ async def get_current_user(
     description="Récupère la structure complète d'un projet avec toutes ses tables, champs et relations."
 )
 async def get_schema(
-    project_id: int,
+    project_id: UUID,
     current_user: User = Depends(get_current_user),
     service: SchemaService = Depends(get_schema_service),
 ):
@@ -61,7 +61,7 @@ async def get_schema(
     description="Récupère la liste simple de toutes les tables définies dans le schéma du projet."
 )
 async def list_tables(
-    project_id: int,
+    project_id: UUID,
     current_user: User = Depends(get_current_user),
     service: SchemaService = Depends(get_schema_service),
 ):
@@ -76,7 +76,7 @@ async def list_tables(
     description="Crée une nouvelle table dans le schéma du projet avec un nom unique et une description optionnelle."
 )
 async def create_table(
-    project_id: int,
+    project_id: UUID,
     data: TableSchemaCreate,
     current_user: User = Depends(get_current_user),
     service: SchemaService = Depends(get_schema_service),
@@ -179,7 +179,7 @@ async def delete_field(
     description="Récupère la liste de toutes les relations (OneToMany, ManyToOne, ManyToMany) définies entre les tables."
 )
 async def list_relations(
-    project_id: int,
+    project_id: UUID,
     current_user: User = Depends(get_current_user),
     service: SchemaService = Depends(get_schema_service),
 ):
@@ -194,7 +194,7 @@ async def list_relations(
     description="Crée un lien entre deux tables avec un type de relation spécifié (OneToMany, ManyToMany, etc.)."
 )
 async def create_relation(
-    project_id: int,
+    project_id: UUID,
     data: RelationCreate,
     current_user: User = Depends(get_current_user),
     service: SchemaService = Depends(get_schema_service),

@@ -32,13 +32,30 @@ class InterfaceService:
         self.db = db
 
     async def get_or_create_interface(self, project_id: UUID) -> InterfaceResponse:
-        """Récupère ou crée automatiquement l'interface d'un projet"""
+        """Récupère ou crée automatiquement l'interface d'un projet et hydrate pages/composants."""
         interface = await self.interface_repo.get_by_project_id(project_id)
-        
+
         if not interface:
             interface = await self.interface_repo.create(project_id)
-        
-        return InterfaceResponse.from_orm(interface)
+
+        pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
+        hydrated_pages = []
+        for page in pages:
+            composants = await self.composant_repo.get_by_page_id(page.tracking_id)
+            page_response = PageResponse.from_orm(page)
+            page_response.composants = [
+                ComposantResponse.from_orm(c) for c in composants
+            ]
+            hydrated_pages.append(page_response)
+
+        return InterfaceResponse(
+            tracking_id=interface.tracking_id,
+            project_id=interface.project_id,
+            version=interface.version,
+            pages=hydrated_pages,
+            created_at=interface.created_at,
+            updated_at=interface.updated_at,
+        )
 
     # ─── PAGES ─────────────────────────────────────────
 

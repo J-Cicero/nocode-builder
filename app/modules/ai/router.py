@@ -16,7 +16,7 @@ from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
 
 
-router = APIRouter(prefix="/ai", tags=["🤖 AI Assistant"])
+router = APIRouter(prefix="/ai", tags=["AI Assistant"])
 
 
 def get_ai_service(db: AsyncSession = Depends(get_db)) -> AIService:
