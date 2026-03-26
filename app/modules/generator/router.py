@@ -17,7 +17,7 @@ from app.modules.auth.models import User
 
 
 router = APIRouter(
-    prefix="/api/generator",
+    prefix="/generator",
     tags=["Generator"],
 )
 

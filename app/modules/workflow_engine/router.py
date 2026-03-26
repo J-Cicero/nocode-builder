@@ -16,7 +16,7 @@ from app.modules.auth.models import User
 
 
 router = APIRouter(
-    prefix="/api/workflows",
+    prefix="/workflows",
     tags=["Workflows"],
 )
 

@@ -19,7 +19,7 @@ from app.modules.auth.models import User
 
 
 router = APIRouter(
-    prefix="/api/interface",
+    prefix="/interface",
     tags=["Interface Builder"],
 )
 
