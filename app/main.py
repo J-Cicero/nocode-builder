@@ -13,7 +13,7 @@ app = FastAPI(
     title="NoCode Builder",
     description="Plateforme no-code pour créer des apps sans coder.",
     version="1.0.0",
-    redirect_slashes=False,
+    redirect_slashes=True,
 )
 
 app.add_middleware(
