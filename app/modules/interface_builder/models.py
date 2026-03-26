@@ -21,6 +21,12 @@ class TypeComposant(str, enum.Enum):
     NAVIGATION = "navigation"
 
 
+class TypePage(str, enum.Enum):
+    MOBILE = "mobile"
+    TABLET = "tablet"
+    DESKTOP = "desktop"
+
+
 class Interface(Base):
     __tablename__ = "interfaces"
 
@@ -48,6 +54,12 @@ class Page(Base):
     
     nom = Column(String(200), nullable=False)
     chemin = Column(String(200), nullable=False)
+    type_page = Column(
+        Enum(TypePage, name="typepage", values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=TypePage.MOBILE,
+        server_default=TypePage.MOBILE.value,
+    )
     est_accueil = Column(Boolean, default=False)
     ordre = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

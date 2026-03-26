@@ -31,6 +31,40 @@ class InterfaceService:
         self.composant_repo = ComposantRepository(db)
         self.db = db
 
+    async def _build_page_response(self, page: Page, include_components: bool = False) -> PageResponse:
+        composants_response = []
+        if include_components:
+            composants = await self.composant_repo.get_by_page_id(page.tracking_id)
+            composants_response = [self._build_composant_response(c) for c in composants]
+
+        return PageResponse(
+            tracking_id=page.tracking_id,
+            nom=page.nom,
+            chemin=page.chemin,
+            type_page=page.type_page,
+            est_accueil=page.est_accueil,
+            ordre=page.ordre,
+            composants=composants_response,
+            created_at=page.created_at,
+        )
+
+    def _build_composant_response(self, composant: Composant) -> ComposantResponse:
+        return ComposantResponse(
+            tracking_id=composant.tracking_id,
+            type=composant.type,
+            parent_id=composant.parent_id,
+            position_x=composant.position_x,
+            position_y=composant.position_y,
+            largeur=composant.largeur,
+            hauteur=composant.hauteur,
+            styles=composant.styles,
+            config=composant.config,
+            connecte_a=composant.connecte_a,
+            ordre=composant.ordre,
+            enfants=[],
+            created_at=composant.created_at,
+        )
+
     async def get_or_create_interface(self, project_id: UUID) -> InterfaceResponse:
         """Récupère ou crée automatiquement l'interface d'un projet et hydrate pages/composants."""
         interface = await self.interface_repo.get_by_project_id(project_id)
@@ -42,10 +76,16 @@ class InterfaceService:
         hydrated_pages = []
         for page in pages:
             composants = await self.composant_repo.get_by_page_id(page.tracking_id)
-            page_response = PageResponse.from_orm(page)
-            page_response.composants = [
-                ComposantResponse.from_orm(c) for c in composants
-            ]
+            page_response = PageResponse(
+                tracking_id=page.tracking_id,
+                nom=page.nom,
+                chemin=page.chemin,
+                type_page=page.type_page,
+                est_accueil=page.est_accueil,
+                ordre=page.ordre,
+                composants=[self._build_composant_response(c) for c in composants],
+                created_at=page.created_at,
+            )
             hydrated_pages.append(page_response)
 
         return InterfaceResponse(
@@ -77,16 +117,17 @@ class InterfaceService:
             interface_id=interface.tracking_id,
             nom=data.nom,
             chemin=data.chemin,
+            type_page=data.type_page,
             est_accueil=data.est_accueil,
             ordre=data.ordre,
         )
-        return PageResponse.from_orm(page)
+        return await self._build_page_response(page, include_components=False)
 
     async def get_page(self, tracking_id: UUID) -> PageResponse:
         page = await self.page_repo.get_by_tracking_id(tracking_id)
         if not page:
             raise HTTPException(status_code=404, detail="Page introuvable")
-        return PageResponse.from_orm(page)
+        return await self._build_page_response(page, include_components=True)
 
     async def update_page(
         self,
@@ -102,13 +143,15 @@ class InterfaceService:
             update_data["nom"] = data.nom
         if data.chemin is not None:
             update_data["chemin"] = data.chemin
+        if data.type_page is not None:
+            update_data["type_page"] = data.type_page
         if data.est_accueil is not None:
             update_data["est_accueil"] = data.est_accueil
         if data.ordre is not None:
             update_data["ordre"] = data.ordre
 
         page = await self.page_repo.update(page, update_data)
-        return PageResponse.from_orm(page)
+        return await self._build_page_response(page, include_components=False)
 
     async def delete_page(self, tracking_id: UUID):
         page = await self.page_repo.get_by_tracking_id(tracking_id)
@@ -142,13 +185,13 @@ class InterfaceService:
             connecte_a=data.connecte_a,
             ordre=data.ordre,
         )
-        return ComposantResponse.from_orm(composant)
+        return self._build_composant_response(composant)
 
     async def get_composant(self, tracking_id: UUID) -> ComposantResponse:
         composant = await self.composant_repo.get_by_tracking_id(tracking_id)
         if not composant:
             raise HTTPException(status_code=404, detail="Composant introuvable")
-        return ComposantResponse.from_orm(composant)
+        return self._build_composant_response(composant)
 
     async def update_composant(
         self,
@@ -178,7 +221,7 @@ class InterfaceService:
             update_data["ordre"] = data.ordre
 
         composant = await self.composant_repo.update(composant, update_data)
-        return ComposantResponse.from_orm(composant)
+        return self._build_composant_response(composant)
 
     async def delete_composant(self, tracking_id: UUID):
         composant = await self.composant_repo.get_by_tracking_id(tracking_id)
@@ -192,6 +235,23 @@ class InterfaceService:
         page = await self.page_repo.get_by_tracking_id(page_id)
         if not page:
             raise HTTPException(status_code=404, detail="Page introuvable")
+
+        provided_ids = [item.get("id") for item in ordre]
+        provided_ids = [pid for pid in provided_ids if pid is not None]
+        if len(provided_ids) != len(set(provided_ids)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La liste de réordonnancement contient des IDs en double.",
+            )
+
+        existing_components = await self.composant_repo.get_by_page_id(page_id)
+        existing_ids = {component.tracking_id for component in existing_components}
+        unknown_ids = [pid for pid in provided_ids if pid not in existing_ids]
+        if unknown_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Certains composants ne correspondent pas à cette page.",
+            )
 
         await self.composant_repo.reorder(page_id, ordre)
         return {"message": "Composants réordonnés"}

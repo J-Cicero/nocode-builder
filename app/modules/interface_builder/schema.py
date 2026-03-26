@@ -17,6 +17,12 @@ class TypeComposant(str, Enum):
     NAVIGATION = "navigation"
 
 
+class TypePage(str, Enum):
+    MOBILE = "mobile"
+    TABLET = "tablet"
+    DESKTOP = "desktop"
+
+
 # ═══════════════════════════════════════════════════════════════
 #  COMPOSANT
 # ═══════════════════════════════════════════════════════════════
@@ -74,6 +80,7 @@ ComposantResponse.model_rebuild()
 class PageCreate(BaseModel):
     nom: str = Field(..., min_length=1, max_length=200)
     chemin: str = Field(..., min_length=1, max_length=200)
+    type_page: TypePage = TypePage.MOBILE
     est_accueil: bool = False
     ordre: int = 0
 
@@ -81,6 +88,7 @@ class PageCreate(BaseModel):
 class PageUpdate(BaseModel):
     nom: Optional[str] = Field(None, min_length=1, max_length=200)
     chemin: Optional[str] = Field(None, min_length=1, max_length=200)
+    type_page: Optional[TypePage] = None
     est_accueil: Optional[bool] = None
     ordre: Optional[int] = None
 
@@ -89,6 +97,7 @@ class PageResponse(BaseModel):
     tracking_id: UUID
     nom: str
     chemin: str
+    type_page: TypePage
     est_accueil: bool
     ordre: int
     composants: List[ComposantResponse] = []

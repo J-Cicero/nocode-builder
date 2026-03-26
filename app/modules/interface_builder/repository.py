@@ -62,12 +62,20 @@ class PageRepository:
         )
         return result.scalar_one_or_none()
 
-    async def create(self, interface_id: UUID, nom: str, chemin: str, 
-                    est_accueil: bool, ordre: int) -> Page:
+    async def create(
+        self,
+        interface_id: UUID,
+        nom: str,
+        chemin: str,
+        type_page: str,
+        est_accueil: bool,
+        ordre: int,
+    ) -> Page:
         page = Page(
             interface_id=interface_id,
             nom=nom,
             chemin=chemin,
+            type_page=type_page,
             est_accueil=est_accueil,
             ordre=ordre,
         )
@@ -143,7 +151,10 @@ class ComposantRepository:
     async def reorder(self, page_id: UUID, ordre: list[dict]) -> None:
         for item in ordre:
             result = await self.db.execute(
-                select(Composant).where(Composant.tracking_id == item["id"])
+                select(Composant).where(
+                    (Composant.tracking_id == item["id"])
+                    & (Composant.page_id == page_id)
+                )
             )
             composant = result.scalar_one_or_none()
             if composant:
