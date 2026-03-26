@@ -21,7 +21,7 @@ class SchemaService:
         self.project_repo = ProjectRepository(db)
         self.db = db
 
-    async def _get_schema_or_404(self, project_id: int):
+    async def _get_schema_or_404(self, project_id: UUID):
         schema = await self.schema_repo.get_by_project_id(project_id)
         if not schema:
             raise HTTPException(status_code=404, detail="Schéma introuvable.")
@@ -49,9 +49,9 @@ class SchemaService:
     #  SCHEMA
     # ═══════════════════════════════════════════════════════════════
 
-    async def get_or_create_schema(self, project_id: int):
+    async def get_or_create_schema(self, project_id: UUID):
         """Récupère ou crée le schéma d'un projet."""
-        project = await self.project_repo.get_by_id(project_id)
+        project = await self.project_repo.get_by_tracking_id(project_id)
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")
         
@@ -64,24 +64,22 @@ class SchemaService:
     #  TABLES
     # ═══════════════════════════════════════════════════════════════
 
-    async def get_all_tables(self, project_id: int):
+    async def get_all_tables(self, project_id: UUID):
         """Liste toutes les tables d'un projet."""
-        schema = await self._get_schema_or_404(project_id)
-        return await self.table_repo.get_all_by_schema(schema.id)
+        schema = await self.get_or_create_schema(project_id)
+        return await self.table_repo.get_all_by_schema(schema.tracking_id)
 
-    async def create_table(self, project_id: int, data: TableSchemaCreate):
+    async def create_table(self, project_id: UUID, data: TableSchemaCreate):
         """Crée une nouvelle table dans le schéma."""
-        schema = await self.schema_repo.get_by_project_id(project_id)
-        if not schema:
-            raise HTTPException(status_code=404, detail="Schéma introuvable.")
+        schema = await self.get_or_create_schema(project_id)
         
         # Vérifier que le nom est unique
-        existing = await self.table_repo.get_by_name_and_schema(data.name, schema.id)
+        existing = await self.table_repo.get_by_name_and_schema(data.name, schema.tracking_id)
         if existing:
             raise HTTPException(status_code=400, detail="Une table avec ce nom existe déjà.")
         
         return await self.table_repo.create(
-            schema_id=schema.id,
+            schema_id=schema.tracking_id,
             name=data.name,
             display_name=data.display_name,
             description=data.description,
@@ -111,7 +109,7 @@ class SchemaService:
         """Ajoute un champ à une table."""
         table = await self._get_table_or_404(table_id)
         return await self.field_repo.create(
-            table_id=table.id,
+            table_id=table.tracking_id,
             name=data.name,
             type=data.type,
             display_name=data.display_name,
@@ -136,26 +134,26 @@ class SchemaService:
     #  RELATIONS
     # ═══════════════════════════════════════════════════════════════
 
-    async def get_all_relations(self, project_id: int):
+    async def get_all_relations(self, project_id: UUID):
         """Liste toutes les relations d'un projet."""
-        schema = await self._get_schema_or_404(project_id)
-        return await self.relation_repo.get_all_by_schema(schema.id)
+        schema = await self.get_or_create_schema(project_id)
+        return await self.relation_repo.get_all_by_schema(schema.tracking_id)
 
-    async def create_relation(self, project_id: int, data: RelationCreate):
+    async def create_relation(self, project_id: UUID, data: RelationCreate):
         """Crée une nouvelle relation."""
-        schema = await self._get_schema_or_404(project_id)
+        schema = await self.get_or_create_schema(project_id)
         
         # Vérifier que les tables existent
-        source = await self.table_repo.get_by_tracking_id(UUID(int=data.source_table_id))
-        target = await self.table_repo.get_by_tracking_id(UUID(int=data.target_table_id))
+        source = await self.table_repo.get_by_tracking_id(data.source_table_id)
+        target = await self.table_repo.get_by_tracking_id(data.target_table_id)
         
         if not source or not target:
             raise HTTPException(status_code=404, detail="Une des tables introuvable.")
         
         return await self.relation_repo.create(
-            schema_id=schema.id,
-            source_table_id=source.id,
-            target_table_id=target.id,
+            schema_id=schema.tracking_id,
+            source_table_id=source.tracking_id,
+            target_table_id=target.tracking_id,
             name=data.name,
             type=data.type,
             description=data.description,
