@@ -236,8 +236,19 @@ class InterfaceService:
         if not page:
             raise HTTPException(status_code=404, detail="Page introuvable")
 
-        provided_ids = [item.get("id") for item in ordre]
-        provided_ids = [pid for pid in provided_ids if pid is not None]
+        provided_ids = []
+        for item in ordre:
+            raw_id = item.get("id")
+            if raw_id is None:
+                continue
+            try:
+                provided_ids.append(UUID(str(raw_id)))
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Un identifiant composant est invalide.",
+                )
+
         if len(provided_ids) != len(set(provided_ids)):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

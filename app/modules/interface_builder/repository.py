@@ -150,9 +150,13 @@ class ComposantRepository:
 
     async def reorder(self, page_id: UUID, ordre: list[dict]) -> None:
         for item in ordre:
+            try:
+                tracking_id = UUID(str(item["id"]))
+            except (KeyError, ValueError, TypeError):
+                continue
             result = await self.db.execute(
                 select(Composant).where(
-                    (Composant.tracking_id == item["id"])
+                    (Composant.tracking_id == tracking_id)
                     & (Composant.page_id == page_id)
                 )
             )
