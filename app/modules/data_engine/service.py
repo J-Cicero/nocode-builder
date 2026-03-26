@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.data_engine.repository import DonneeRepository, HistoriqueRepository
 from app.modules.data_engine.schema import DonneeCreate, DonneeUpdate, DonneeResponse, DonneeListResponse
-from app.modules.schema_builder.repository import SchemaRepository, TableSchemaRepository, FieldRepository
+from app.modules.schema.repository import SchemaRepository, TableSchemaRepository, FieldRepository
 
 
 class DataEngineService:

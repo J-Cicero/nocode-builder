@@ -2,11 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.modules.auth.router import router as auth_router
 from app.modules.projects.router import router as projects_router
-from app.modules.schema_builder.router import router as schema_router
+from app.modules.schema.router import router as schema_router
 from app.modules.data_engine.router import router as data_router
 from app.modules.workflow_engine.router import router as workflow_router
 from app.modules.interface_builder.router import router as interface_router
 from app.modules.generator.router import router as generator_router
+from app.modules.ai.router import router as ai_router
 
 app = FastAPI(
     title="NoCode Builder",
@@ -29,6 +30,7 @@ app.include_router(data_router, prefix="/api")
 app.include_router(workflow_router, prefix="/api")
 app.include_router(interface_router, prefix="/api")
 app.include_router(generator_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
 
 @app.get("/", tags=["Health"])
 async def root():
