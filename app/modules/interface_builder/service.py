@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 
 from app.modules.interface_builder.repository import (
@@ -70,7 +71,14 @@ class InterfaceService:
         interface = await self.interface_repo.get_by_project_id(project_id)
 
         if not interface:
-            interface = await self.interface_repo.create(project_id)
+            try:
+                interface = await self.interface_repo.create(project_id)
+            except IntegrityError:
+                # Une autre requête concurrente a déjà créé l'interface.
+                await self.db.rollback()
+                interface = await self.interface_repo.get_by_project_id(project_id)
+                if not interface:
+                    raise
 
         pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
         hydrated_pages = []

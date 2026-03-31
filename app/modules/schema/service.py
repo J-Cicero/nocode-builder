@@ -1,4 +1,5 @@
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 
 from app.modules.schema.repository import (
@@ -58,7 +59,14 @@ class SchemaService:
         
         schema = await self.schema_repo.get_by_project_id(project_id)
         if not schema:
-            schema = await self.schema_repo.create_for_project(project_id)
+            try:
+                schema = await self.schema_repo.create_for_project(project_id)
+            except IntegrityError:
+                # Une autre requête concurrente a déjà créé le schéma.
+                await self.db.rollback()
+                schema = await self.schema_repo.get_by_project_id(project_id)
+                if not schema:
+                    raise
         return schema
 
     async def get_schema_detail(self, project_id: UUID) -> SchemaDetailResponse:

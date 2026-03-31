@@ -227,10 +227,16 @@ class AIService:
                 except KeyError:
                     relation_type_enum = RelationType.ONE_TO_MANY
 
+                relation_name = relation_data.get("name") or f"{from_table}_{relation_type}_{to_table}"
                 relation = Relation(
+                    schema_id=schema.tracking_id,
                     source_table_id=table_mapping[from_table],
                     target_table_id=table_mapping[to_table],
-                    type=relation_type_enum
+                    name=relation_name,
+                    type=relation_type_enum,
+                    description=relation_data.get("description"),
+                    source_key=relation_data.get("source_key", "id"),
+                    target_key=relation_data.get("target_key", "id"),
                 )
                 self.db.add(relation)
                 relations_count += 1
