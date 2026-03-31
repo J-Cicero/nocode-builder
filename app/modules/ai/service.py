@@ -2,6 +2,7 @@ import json
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import select
 from uuid import UUID
 from groq import Groq
 
@@ -132,8 +133,11 @@ class AIService:
             limit=20
         )
 
-        # 5. Build messages list for Groq
+        # 5. Build messages list for Groq with project context
+        project_context = await self._build_project_context(project_id)
         messages = [{"role": "system", "content": SYSTEM_PROMPT_CHAT}]
+        if project_context:
+            messages.append({"role": "system", "content": project_context})
         for msg in history:
             messages.append({
                 "role": msg.role.value,
@@ -145,7 +149,7 @@ class AIService:
             response = self.groq_client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                temperature=0.7,
+                temperature=0.3,
                 max_tokens=1024
             )
             ai_content = response.choices[0].message.content
@@ -214,7 +218,6 @@ class AIService:
             )
 
         # 4. Create schema if not exists
-        from sqlalchemy import select
         schema_stmt = select(Schema).where(Schema.project_id == project_id)
         schema_result = await self.db.execute(schema_stmt)
         schema = schema_result.scalar_one_or_none()
@@ -482,3 +485,70 @@ class AIService:
             await self.db.commit()
 
         return {"message": "Conversation cleared successfully"}
+
+    async def _build_project_context(self, project_id: UUID) -> str:
+        """Summarize current schema and interface for grounding the chat."""
+        parts: list[str] = []
+
+        # Schema summary
+        schema_stmt = select(Schema).where(Schema.project_id == project_id)
+        schema = (await self.db.execute(schema_stmt)).scalar_one_or_none()
+        if schema:
+            tables_stmt = (
+                select(TableSchema)
+                .where(TableSchema.schema_id == schema.tracking_id)
+                .order_by(TableSchema.created_at.desc())
+            )
+            tables = list((await self.db.execute(tables_stmt)).scalars().all())
+            table_map = {t.tracking_id: t.name for t in tables}
+            table_summaries = []
+            for table in tables[:6]:
+                fields_stmt = (
+                    select(Field)
+                    .where(Field.table_id == table.tracking_id)
+                    .order_by(Field.created_at)
+                )
+                fields = list((await self.db.execute(fields_stmt)).scalars().all())
+                field_names = [f.name for f in fields[:6]]
+                table_summaries.append(f"{table.name}: " + (", ".join(field_names) if field_names else "no fields"))
+            relations_stmt = (
+                select(Relation)
+                .where(Relation.schema_id == schema.tracking_id)
+                .order_by(Relation.created_at.desc())
+            )
+            relations = list((await self.db.execute(relations_stmt)).scalars().all())
+            relation_summaries = []
+            for rel in relations[:6]:
+                rel_type = rel.type.value if hasattr(rel.type, "value") else rel.type
+                src = table_map.get(rel.source_table_id, str(rel.source_table_id))
+                tgt = table_map.get(rel.target_table_id, str(rel.target_table_id))
+                relation_summaries.append(f"{src}->{tgt} ({rel_type})")
+            parts.append("SCHEMA: " + ("; ".join(table_summaries) if table_summaries else "none"))
+            if relation_summaries:
+                parts.append("RELATIONS: " + "; ".join(relation_summaries))
+
+        # Interface summary
+        interface_stmt = select(Interface).where(Interface.project_id == project_id)
+        interface = (await self.db.execute(interface_stmt)).scalar_one_or_none()
+        if interface:
+            pages_stmt = (
+                select(Page)
+                .where(Page.interface_id == interface.tracking_id)
+                .order_by(Page.created_at)
+            )
+            pages = list((await self.db.execute(pages_stmt)).scalars().all())
+            page_summaries = []
+            for page in pages[:6]:
+                comps_stmt = (
+                    select(Composant)
+                    .where(Composant.page_id == page.tracking_id)
+                )
+                comps = list((await self.db.execute(comps_stmt)).scalars().all())
+                page_summaries.append(
+                    f"{page.nom} [{page.chemin}] device={page.type_page} comps={len(comps)}"
+                )
+            parts.append("INTERFACE: " + ("; ".join(page_summaries) if page_summaries else "none"))
+
+        if not parts:
+            return ""
+        return "PROJECT CONTEXT:\n" + "\n".join(parts)
