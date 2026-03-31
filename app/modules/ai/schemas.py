@@ -59,3 +59,16 @@ class SchemaGenerationResponse(BaseModel):
     tables_created: List[str] = []
     relations_created: int = 0
     raw_schema: Optional[dict] = None
+
+
+class InterfaceGenerationRequest(BaseModel):
+    description: str = Field(..., min_length=10, max_length=5000,
+                            description="Natural language description of the application interface to build")
+
+
+class InterfaceGenerationResponse(BaseModel):
+    success: bool
+    message: str
+    pages_created: List[str] = []
+    components_created: int = 0
+    raw_interface: Optional[dict] = None

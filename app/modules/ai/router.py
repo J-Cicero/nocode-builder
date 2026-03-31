@@ -11,6 +11,8 @@ from app.modules.ai.schemas import (
     ConversationResponse,
     SchemaGenerationRequest,
     SchemaGenerationResponse,
+    InterfaceGenerationRequest,
+    InterfaceGenerationResponse,
 )
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
@@ -73,6 +75,23 @@ async def generate_schema(
     service: AIService = Depends(get_ai_service),
 ) -> SchemaGenerationResponse:
     return await service.generate_schema(project_id, data, current_user)
+
+
+@router.post(
+    "/projects/{project_id}/generate-interface",
+    response_model=InterfaceGenerationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate interface from description",
+    description="Provide a natural language description of your application UI, "
+                "and the AI will generate pages and components in the interface builder."
+)
+async def generate_interface(
+    project_id: UUID,
+    data: InterfaceGenerationRequest,
+    current_user: User = Depends(get_current_user),
+    service: AIService = Depends(get_ai_service),
+) -> InterfaceGenerationResponse:
+    return await service.generate_interface(project_id, data, current_user)
 
 
 @router.get(

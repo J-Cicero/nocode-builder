@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     POSTGRES_DB: str
     
     GROQ_API_KEY: str
+    VERCEL_TOKEN: str | None = None
+    VERCEL_TEAM_SLUG: str | None = None
 
     @property
     def DATABASE_URL(self) -> str:

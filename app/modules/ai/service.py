@@ -1,6 +1,7 @@
 import json
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError
 from uuid import UUID
 from groq import Groq
 
@@ -13,12 +14,20 @@ from app.modules.ai.schemas import (
     ConversationResponse,
     SchemaGenerationRequest,
     SchemaGenerationResponse,
+    InterfaceGenerationRequest,
+    InterfaceGenerationResponse,
 )
-from app.modules.ai.prompts import SYSTEM_PROMPT_CHAT, SYSTEM_PROMPT_SCHEMA_GENERATION
+from app.modules.ai.prompts import (
+    SYSTEM_PROMPT_CHAT,
+    SYSTEM_PROMPT_SCHEMA_GENERATION,
+    SYSTEM_PROMPT_INTERFACE_GENERATION,
+)
 from app.modules.projects.repository import ProjectRepository
 from app.modules.schema.models import Schema, TableSchema, Field, Relation
 from app.modules.schema.models import FieldType, RelationType
 from app.modules.auth.models import User
+from app.modules.interface_builder.models import Interface, Page, Composant, TypePage, TypeComposant
+from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository
 
 
 class AIService:
@@ -26,8 +35,67 @@ class AIService:
         self.db = db
         self.conv_repo = ConversationRepository(db)
         self.msg_repo = MessageRepository(db)
+        self.interface_repo = InterfaceRepository(db)
+        self.page_repo = PageRepository(db)
+        self.composant_repo = ComposantRepository(db)
         self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
         self.model = "llama-3.3-70b-versatile"
+
+    @staticmethod
+    def _clean_json_response(raw_content: str) -> dict:
+        raw_content = raw_content.strip()
+        if raw_content.startswith("```json"):
+            raw_content = raw_content[7:]
+        if raw_content.startswith("```"):
+            raw_content = raw_content[3:]
+        if raw_content.endswith("```"):
+            raw_content = raw_content[:-3]
+        raw_content = raw_content.strip()
+        return json.loads(raw_content)
+
+    @staticmethod
+    def _requested_devices_from_description(description: str) -> list[str]:
+        text = description.lower()
+        devices = []
+        if any(token in text for token in ["mobile", "phone", "smartphone"]):
+            devices.append("mobile")
+        if any(token in text for token in ["tablet", "tablette", "ipad"]):
+            devices.append("tablet")
+        if any(token in text for token in ["desktop", "web", "ordinateur", "bureau", "laptop"]):
+            devices.append("desktop")
+        return devices or ["mobile"]
+
+    @staticmethod
+    def _ensure_requested_device_pages(interface_json: dict, requested_devices: list[str]) -> dict:
+        pages = interface_json.get("pages", [])
+        if not pages:
+            return interface_json
+
+        by_device = {}
+        for page in pages:
+            device = str(page.get("device", "mobile")).lower()
+            by_device.setdefault(device, []).append(page)
+
+        normalized_pages = list(pages)
+        for device in requested_devices:
+            if device in by_device:
+                continue
+
+            source_pages = by_device.get("mobile") or normalized_pages
+            cloned_pages = []
+            for page in source_pages:
+                clone = {
+                    **page,
+                    "device": device,
+                    "is_home": bool(page.get("is_home", False)),
+                    "components": list(page.get("components", [])),
+                }
+                cloned_pages.append(clone)
+            normalized_pages.extend(cloned_pages)
+            by_device[device] = cloned_pages
+
+        interface_json["pages"] = normalized_pages
+        return interface_json
 
     async def chat(
         self,
@@ -137,17 +205,8 @@ class AIService:
 
         # 3. Parse JSON response
         # Strip any accidental backticks or "json" prefix
-        raw_content = raw_content.strip()
-        if raw_content.startswith("```json"):
-            raw_content = raw_content[7:]
-        if raw_content.startswith("```"):
-            raw_content = raw_content[3:]
-        if raw_content.endswith("```"):
-            raw_content = raw_content[:-3]
-        raw_content = raw_content.strip()
-
         try:
-            schema_json = json.loads(raw_content)
+            schema_json = self._clean_json_response(raw_content)
         except json.JSONDecodeError:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -266,6 +325,148 @@ class AIService:
             tables_created=table_names,
             relations_created=relations_count,
             raw_schema=schema_json
+        )
+
+    async def generate_interface(
+        self,
+        project_id: UUID,
+        data: InterfaceGenerationRequest,
+        current_user: User,
+    ) -> InterfaceGenerationResponse:
+        project_repo = ProjectRepository(self.db)
+        project = await project_repo.get_by_tracking_id(project_id)
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Project not found"
+            )
+
+        try:
+            response = self.groq_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION},
+                    {"role": "user", "content": data.description}
+                ],
+                temperature=0.2,
+                max_tokens=3000
+            )
+            raw_content = response.choices[0].message.content
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Groq API error: {str(e)}"
+            )
+
+        try:
+            interface_json = self._clean_json_response(raw_content)
+        except json.JSONDecodeError:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="AI returned invalid JSON for interface generation."
+            )
+
+        requested_devices = self._requested_devices_from_description(data.description)
+        interface_json = self._ensure_requested_device_pages(interface_json, requested_devices)
+
+        interface = await self.interface_repo.get_by_project_id(project_id)
+        if not interface:
+            try:
+                interface = await self.interface_repo.create(project_id)
+            except IntegrityError:
+                await self.db.rollback()
+                interface = await self.interface_repo.get_by_project_id(project_id)
+                if not interface:
+                    raise
+
+        existing_pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
+        for page in existing_pages:
+            await self.page_repo.delete(page)
+        await self.db.flush()
+
+        type_mapping = {
+            "container": TypeComposant.CONTENEUR,
+            "columns": TypeComposant.CONTENEUR,
+            "divider": TypeComposant.CONTENEUR,
+            "spacer": TypeComposant.CONTENEUR,
+            "title": TypeComposant.TEXTE,
+            "text": TypeComposant.TEXTE,
+            "badge": TypeComposant.TEXTE,
+            "button": TypeComposant.BOUTON,
+            "input": TypeComposant.CHAMP_INPUT,
+            "textarea": TypeComposant.CHAMP_INPUT,
+            "dropdown": TypeComposant.CHAMP_INPUT,
+            "checkbox": TypeComposant.CHAMP_INPUT,
+            "image": TypeComposant.IMAGE,
+            "dataList": TypeComposant.LISTE,
+            "card": TypeComposant.CARTE,
+        }
+        page_type_mapping = {
+            "mobile": TypePage.MOBILE,
+            "tablet": TypePage.TABLET,
+            "desktop": TypePage.DESKTOP,
+        }
+
+        pages_created = []
+        components_created = 0
+
+        for page_index, page_data in enumerate(interface_json.get("pages", [])):
+            page_name = page_data.get("name") or f"Page {page_index + 1}"
+            page_path = page_data.get("path") or f"/page-{page_index + 1}"
+            page_device = str(page_data.get("device", "mobile")).lower()
+            page = Page(
+                interface_id=interface.tracking_id,
+                nom=page_name,
+                chemin=page_path,
+                type_page=page_type_mapping.get(page_device, TypePage.MOBILE),
+                est_accueil=bool(page_data.get("is_home", page_index == 0)),
+                ordre=page_index,
+            )
+            self.db.add(page)
+            await self.db.flush()
+            await self.db.refresh(page)
+            pages_created.append(page_name)
+
+            for component_index, component_data in enumerate(page_data.get("components", [])):
+                ui_type = component_data.get("ui_type", "text")
+                composant = Composant(
+                    page_id=page.tracking_id,
+                    type=type_mapping.get(ui_type, TypeComposant.TEXTE),
+                    parent_id=None,
+                    position_x=0,
+                    position_y=component_index,
+                    largeur=str(component_data.get("width", "100%")),
+                    hauteur=str(component_data.get("height", "auto")),
+                    styles=component_data.get("styles") or {},
+                    config={
+                        "uiType": ui_type,
+                        "props": component_data.get("props") or {},
+                    },
+                    connecte_a=None,
+                    ordre=component_index,
+                )
+                self.db.add(composant)
+                components_created += 1
+
+        conversation = await self.conv_repo.get_or_create(project_id)
+        summary = (
+            f"I created {len(pages_created)} pages and {components_created} components "
+            f"for your interface. You can review them in the Interface tab."
+        )
+        await self.msg_repo.create(
+            conversation_id=conversation.tracking_id,
+            role="assistant",
+            content=summary
+        )
+
+        await self.db.commit()
+
+        return InterfaceGenerationResponse(
+            success=True,
+            message=f"Successfully created {len(pages_created)} pages and {components_created} components",
+            pages_created=pages_created,
+            components_created=components_created,
+            raw_interface=interface_json,
         )
 
     async def get_history(self, project_id: UUID) -> ConversationResponse:

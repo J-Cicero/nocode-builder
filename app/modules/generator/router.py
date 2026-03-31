@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Request, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -11,6 +11,9 @@ from app.modules.generator.schema import (
     GenerationCreate,
     GenerationResponse,
     GenerationListResponse,
+    DeploymentPreviewResponse,
+    DeploymentCreate,
+    DeploymentResponse,
 )
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
@@ -30,7 +33,6 @@ async def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    from fastapi import HTTPException
     payload = decode_token(token)
     tracking_id = UUID(payload["sub"])
     repo = AuthRepository(db)
@@ -111,3 +113,32 @@ async def download_generation(
         media_type="application/zip",
         filename=f"{generation.nom}.zip",
     )
+
+
+@router.post(
+    "/{project_id}/deploy-preview",
+    response_model=DeploymentPreviewResponse,
+    status_code=200,
+    summary="Deployer une preview statique",
+)
+async def deploy_preview(
+    project_id: UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    service: GeneratorService = Depends(get_generator_service),
+):
+    return await service.deploy_preview(project_id, str(request.base_url).rstrip("/"))
+
+
+@router.post(
+    "/deploy",
+    response_model=DeploymentResponse,
+    status_code=201,
+    summary="Deployer sur Vercel",
+)
+async def deploy_to_vercel(
+    data: DeploymentCreate,
+    current_user: User = Depends(get_current_user),
+    service: GeneratorService = Depends(get_generator_service),
+):
+    return await service.deploy_to_vercel(data.project_id)

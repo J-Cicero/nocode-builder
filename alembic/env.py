@@ -11,7 +11,7 @@ from app.modules.schema.models import Schema, TableSchema, Field, Relation
 from app.modules.data_engine.models import DonneeProjet, HistoriqueDonnee
 from app.modules.interface_builder.models import Interface, Page, Composant
 from app.modules.workflow_engine.models import Workflow, EtapeWorkflow, ExecutionWorkflow
-from app.modules.generator.models import Generation
+from app.modules.generator.models import Generation, Deployment
 from app.modules.ai.models import Conversation, Message
 
 config = context.config

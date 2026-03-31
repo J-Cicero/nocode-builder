@@ -15,6 +15,12 @@ class StatutGeneration(str, enum.Enum):
     FAILED = "échoué"
 
 
+class StatutDeployment(str, enum.Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class Generation(Base):
     __tablename__ = "generations"
 
@@ -33,3 +39,17 @@ class Generation(Base):
 
     def __repr__(self):
         return f"<Generation {self.nom} - {self.statut}>"
+
+
+class Deployment(Base):
+    __tablename__ = "deployments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
+    interface_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    url = Column(String(500), nullable=True)
+    status = Column(Enum(StatutDeployment), default=StatutDeployment.PENDING, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<Deployment {self.interface_id} - {self.status}>"

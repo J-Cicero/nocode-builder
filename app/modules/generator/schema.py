@@ -34,3 +34,24 @@ class GenerationResponse(BaseModel):
 class GenerationListResponse(BaseModel):
     total: int
     generations: list[GenerationResponse]
+
+
+class DeploymentPreviewResponse(BaseModel):
+    success: bool
+    message: str
+    preview_url: str
+
+
+class DeploymentCreate(BaseModel):
+    project_id: UUID
+
+
+class DeploymentResponse(BaseModel):
+    tracking_id: UUID
+    interface_id: UUID
+    url: Optional[str]
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
