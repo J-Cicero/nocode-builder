@@ -94,47 +94,54 @@ class GeneratorService:
         return [GenerationResponse.from_orm(g) for g in generations]
 
     async def deploy_preview(self, project_id: UUID, base_url: str) -> DeploymentPreviewResponse:
+        project = await self.project_repo.get_by_tracking_id(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Projet introuvable")
+
         interface_stmt = select(Interface).where(Interface.project_id == project_id)
         interface_result = await self.db.execute(interface_stmt)
         interface = interface_result.scalar_one_or_none()
-        if not interface:
-            raise HTTPException(status_code=404, detail="Interface introuvable")
-
-        pages_stmt = (
-            select(Page)
-            .where(Page.interface_id == interface.tracking_id)
-            .order_by(Page.ordre)
-        )
-        pages_result = await self.db.execute(pages_stmt)
-        pages = list(pages_result.scalars().all())
-        if not pages:
-            raise HTTPException(status_code=400, detail="Aucune page a deployer")
 
         pages_payload = []
-        for page in pages:
-            composants_stmt = (
-                select(Composant)
-                .where((Composant.page_id == page.tracking_id) & (Composant.parent_id == None))
-                .order_by(Composant.ordre)
+        if interface:
+            pages_stmt = (
+                select(Page)
+                .where(Page.interface_id == interface.tracking_id)
+                .order_by(Page.ordre)
             )
-            composants_result = await self.db.execute(composants_stmt)
-            composants = list(composants_result.scalars().all())
-            pages_payload.append(
-                {
-                    "nom": page.nom,
-                    "chemin": page.chemin,
-                    "type_page": page.type_page.value if hasattr(page.type_page, "value") else str(page.type_page),
-                    "est_accueil": page.est_accueil,
-                    "composants": [
-                        {
-                            "largeur": composant.largeur,
-                            "hauteur": composant.hauteur,
-                            "config": composant.config,
-                        }
-                        for composant in composants
-                    ],
-                }
-            )
+            pages_result = await self.db.execute(pages_stmt)
+            pages = list(pages_result.scalars().all())
+            
+            for page in pages:
+                composants_stmt = (
+                    select(Composant)
+                    .where((Composant.page_id == page.tracking_id) & (Composant.parent_id == None))
+                    .order_by(Composant.ordre)
+                )
+                composants_result = await self.db.execute(composants_stmt)
+                composants = list(composants_result.scalars().all())
+                pages_payload.append(
+                    {
+                        "nom": page.nom,
+                        "chemin": page.chemin,
+                        "type_page": page.type_page.value if hasattr(page.type_page, "value") else str(page.type_page),
+                        "est_accueil": page.est_accueil,
+                        "composants": [
+                            {
+                                "largeur": composant.largeur,
+                                "hauteur": composant.hauteur,
+                                "config": composant.config,
+                            }
+                            for composant in composants
+                        ],
+                    }
+                )
+
+        if not pages_payload:
+            pages_payload = project.config.get("pages", [])
+        
+        if not pages_payload:
+            pages_payload = [{"nom": "Accueil", "chemin": "/", "type_page": "desktop", "est_accueil": True, "composants": []}]
 
         deployment_id = str(project_id)
         render_preview_site(str(project_id), pages_payload, deployment_id)
@@ -157,46 +164,51 @@ class GeneratorService:
         interface_stmt = select(Interface).where(Interface.project_id == project_id)
         interface_result = await self.db.execute(interface_stmt)
         interface = interface_result.scalar_one_or_none()
-        if not interface:
-            raise HTTPException(status_code=404, detail="Interface introuvable")
-
-        pages_stmt = (
-            select(Page)
-            .where(Page.interface_id == interface.tracking_id)
-            .order_by(Page.ordre)
-        )
-        pages_result = await self.db.execute(pages_stmt)
-        pages = list(pages_result.scalars().all())
-        if not pages:
-            raise HTTPException(status_code=400, detail="Aucune page a deployer")
+        
+        deployment = await self.deployment_repo.create(interface.tracking_id if interface else project_id)
 
         pages_payload = []
-        for page in pages:
-            composants_stmt = (
-                select(Composant)
-                .where((Composant.page_id == page.tracking_id) & (Composant.parent_id == None))
-                .order_by(Composant.ordre)
+        if interface:
+            pages_stmt = (
+                select(Page)
+                .where(Page.interface_id == interface.tracking_id)
+                .order_by(Page.ordre)
             )
-            composants_result = await self.db.execute(composants_stmt)
-            composants = list(composants_result.scalars().all())
-            pages_payload.append(
-                {
-                    "nom": page.nom,
-                    "chemin": page.chemin,
-                    "type_page": page.type_page.value if hasattr(page.type_page, "value") else str(page.type_page),
-                    "est_accueil": page.est_accueil,
-                    "composants": [
-                        {
-                            "largeur": composant.largeur,
-                            "hauteur": composant.hauteur,
-                            "config": composant.config,
-                        }
-                        for composant in composants
-                    ],
-                }
-            )
+            pages_result = await self.db.execute(pages_stmt)
+            pages = list(pages_result.scalars().all())
+            
+            for page in pages:
+                composants_stmt = (
+                    select(Composant)
+                    .where((Composant.page_id == page.tracking_id) & (Composant.parent_id == None))
+                    .order_by(Composant.ordre)
+                )
+                composants_result = await self.db.execute(composants_stmt)
+                composants = list(composants_result.scalars().all())
+                pages_payload.append(
+                    {
+                        "nom": page.nom,
+                        "chemin": page.chemin,
+                        "type_page": page.type_page.value if hasattr(page.type_page, "value") else str(page.type_page),
+                        "est_accueil": page.est_accueil,
+                        "composants": [
+                            {
+                                "largeur": composant.largeur,
+                                "hauteur": composant.hauteur,
+                                "config": composant.config,
+                            }
+                            for composant in composants
+                        ],
+                    }
+                )
 
-        deployment = await self.deployment_repo.create(interface.tracking_id)
+        if not pages_payload:
+            pages_payload = project.config.get("pages", [])
+            
+        if not pages_payload:
+            pages_payload = [{"nom": "Accueil", "chemin": "/", "type_page": "desktop", "est_accueil": True, "composants": []}]
+
+        await self.db.commit()
         await self.db.commit()
         await self.db.refresh(deployment)
         files = build_static_site_files(project.name, pages_payload)
