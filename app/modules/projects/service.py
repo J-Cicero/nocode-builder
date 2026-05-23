@@ -8,6 +8,8 @@ from app.modules.projects.schema import (
 )
 from app.modules.projects.models import Project
 from app.modules.auth.models import User, UserRole
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 
 
 class ProjectService:
@@ -63,7 +65,32 @@ class ProjectService:
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")
         self._check_owner(project, user)
-        await self.repo.delete(project)
+        try:
+            # Essayer de supprimer les dépendances manuellement si cascade n'est pas configuré
+            repo_db = self.repo.db
+            pid = project.tracking_id
+            await repo_db.execute(text("DELETE FROM fields_schema WHERE table_id IN (SELECT tracking_id FROM tables_schema WHERE schema_id IN (SELECT tracking_id FROM schemas WHERE project_id = :pid))").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM relations WHERE source_table_id IN (SELECT tracking_id FROM tables_schema WHERE schema_id IN (SELECT tracking_id FROM schemas WHERE project_id = :pid))").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM tables_schema WHERE schema_id IN (SELECT tracking_id FROM schemas WHERE project_id = :pid)").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM schemas WHERE project_id = :pid").bindparams(pid=pid))
+            
+            await repo_db.execute(text("DELETE FROM composants WHERE page_id IN (SELECT tracking_id FROM pages WHERE interface_id IN (SELECT tracking_id FROM interfaces WHERE project_id = :pid))").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM pages WHERE interface_id IN (SELECT tracking_id FROM interfaces WHERE project_id = :pid)").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM interfaces WHERE project_id = :pid").bindparams(pid=pid))
+            
+            await repo_db.execute(text("DELETE FROM messages WHERE conversation_id IN (SELECT tracking_id FROM conversations WHERE project_id = :pid)").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM conversations WHERE project_id = :pid").bindparams(pid=pid))
+            
+            await repo_db.execute(text("DELETE FROM etapes_workflow WHERE workflow_id IN (SELECT tracking_id FROM workflows WHERE project_id = :pid)").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM workflows WHERE project_id = :pid").bindparams(pid=pid))
+            
+            await repo_db.execute(text("DELETE FROM champs_donnees WHERE donnee_id IN (SELECT tracking_id FROM donnees_projets WHERE project_id = :pid)").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM donnees_projets WHERE project_id = :pid").bindparams(pid=pid))
+            
+            await self.repo.delete(project)
+        except IntegrityError:
+            await self.repo.db.rollback()
+            raise HTTPException(status_code=400, detail="Impossible de supprimer ce projet car il contient des données liées.")
 
     async def duplicate_project(self, tracking_id: UUID, user: User) -> Project:
         project = await self.repo.get_by_tracking_id(tracking_id)
