@@ -22,6 +22,9 @@ from app.modules.workflow_engine.schema import (
     WorkflowUpdate,
     WorkflowResponse,
     ExecutionResponse,
+    WorkflowGraphResponse,
+    WorkflowGraphUpdate,
+    GraphNode,
 )
 
 
@@ -226,3 +229,97 @@ class WorkflowService:
         """Récupère l'historique d'exécution d'un workflow"""
         executions = await self.execution_repo.get_by_workflow_id(workflow_id)
         return [ExecutionResponse.from_orm(e) for e in executions]
+
+    # ───────────────────── GRAPH (React Flow) ─────────────────────
+
+    async def get_graph(self, workflow_id: UUID) -> WorkflowGraphResponse:
+        workflow = await self.workflow_repo.get_by_tracking_id(workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow introuvable")
+
+        nodes = []
+        edges = []
+
+        # Map etapes -> nodes, edges
+        for etape in sorted(workflow.etapes, key=lambda e: e.ordre):
+            cfg = etape.config or {}
+            ui = cfg.get("ui", {})
+            position = ui.get("position", {"x": 0, "y": etape.ordre * 120})
+            nodes.append(
+                GraphNode(
+                    id=etape.tracking_id,
+                    type=etape.type,
+                    data=cfg,
+                    position=position,
+                )
+            )
+
+        # Edges : préférer ceux stockés dans ui.edges, sinon chaînage linéaire
+        if nodes:
+            # collect explicit
+            for etape in workflow.etapes:
+                ui_edges = (etape.config or {}).get("ui", {}).get("edges", [])
+                for idx, e in enumerate(ui_edges):
+                    edges.append(
+                        {
+                            "id": e.get("id") or f"e-{etape.tracking_id}-{idx}",
+                            "source": e.get("source") or etape.tracking_id,
+                            "target": e.get("target"),
+                            "label": e.get("label"),
+                            "type": e.get("type") or "smoothstep",
+                        }
+                    )
+            if not edges:
+                # fallback linear
+                for i in range(len(nodes) - 1):
+                    edges.append(
+                        {
+                            "id": f"e-{nodes[i].id}-{nodes[i+1].id}",
+                            "source": nodes[i].id,
+                            "target": nodes[i + 1].id,
+                            "type": "smoothstep",
+                        }
+                    )
+
+        return WorkflowGraphResponse(
+            workflow_id=workflow.tracking_id,
+            nodes=nodes,
+            edges=edges,
+        )
+
+    async def update_graph(self, workflow_id: UUID, data: WorkflowGraphUpdate) -> WorkflowGraphResponse:
+        workflow = await self.workflow_repo.get_by_tracking_id(workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow introuvable")
+
+        # Index nodes/edges
+        node_map = {str(n.id): n for n in data.nodes}
+        edges_by_source = {}
+        for edge in data.edges:
+            edges_by_source.setdefault(str(edge.source), []).append(edge)
+
+        # Update etapes
+        for etape in workflow.etapes:
+            node = node_map.get(str(etape.tracking_id))
+            if not node:
+                continue
+            cfg = node.data or {}
+            cfg["ui"] = {
+                "position": {"x": node.position.x, "y": node.position.y},
+                "edges": [
+                    {
+                        "id": e.id,
+                        "source": str(e.source),
+                        "target": str(e.target),
+                        "label": e.label,
+                        "type": e.type,
+                    }
+                    for e in edges_by_source.get(str(etape.tracking_id), [])
+                ],
+            }
+            etape.config = cfg
+            etape.ordre = node.data.get("ordre", etape.ordre)
+
+        await self.db.flush()
+        await self.db.refresh(workflow)
+        return await self.get_graph(workflow_id)

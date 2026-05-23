@@ -102,12 +102,12 @@ def validate_password(value: str) -> str:
     Vérifie que le mot de passe contient :
     - au moins une lettre
     - au moins un chiffre
-    - au moins un caractère spécial (@$!%*?&)
+    - au moins un caractère spécial (@$!%*?&#._-)
     """
     if not re.search(r"[A-Za-z]", value):
         raise ValueError("Le mot de passe doit contenir au moins une lettre.")
     if not re.search(r"\d", value):
         raise ValueError("Le mot de passe doit contenir au moins un chiffre.")
-    if not re.search(r"[@$!%*?&]", value):
-        raise ValueError("Le mot de passe doit contenir au moins un caractère spécial (@$!%*?&).")
+    if not re.search(r"[@$!%*?&#._-]", value):
+        raise ValueError("Le mot de passe doit contenir au moins un caractère spécial (@$!%*?&#._-).")
     return value

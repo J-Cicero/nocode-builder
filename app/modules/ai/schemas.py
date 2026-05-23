@@ -72,3 +72,16 @@ class InterfaceGenerationResponse(BaseModel):
     pages_created: List[str] = []
     components_created: int = 0
     raw_interface: Optional[dict] = None
+
+
+class AppGenerationRequest(BaseModel):
+    description: str = Field(..., min_length=10, max_length=5000,
+                            description="Description globale de l'application (fonctionnel, données, écrans, automatisations)")
+
+
+class AppGenerationResponse(BaseModel):
+    success: bool
+    message: str
+    schema: SchemaGenerationResponse
+    interface: InterfaceGenerationResponse
+    workflows_created: int = 0

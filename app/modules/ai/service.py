@@ -17,11 +17,14 @@ from app.modules.ai.schemas import (
     SchemaGenerationResponse,
     InterfaceGenerationRequest,
     InterfaceGenerationResponse,
+    AppGenerationRequest,
+    AppGenerationResponse,
 )
 from app.modules.ai.prompts import (
     SYSTEM_PROMPT_CHAT,
     SYSTEM_PROMPT_SCHEMA_GENERATION,
     SYSTEM_PROMPT_INTERFACE_GENERATION,
+    SYSTEM_PROMPT_WORKFLOW_GENERATION,
 )
 from app.modules.projects.repository import ProjectRepository
 from app.modules.schema.models import Schema, TableSchema, Field, Relation
@@ -29,6 +32,7 @@ from app.modules.schema.models import FieldType, RelationType
 from app.modules.auth.models import User
 from app.modules.interface_builder.models import Interface, Page, Composant, TypePage, TypeComposant
 from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository
+from app.modules.workflow_engine.repository import WorkflowRepository
 
 
 class AIService:
@@ -335,6 +339,7 @@ class AIService:
         project_id: UUID,
         data: InterfaceGenerationRequest,
         current_user: User,
+        context_tables: list[str] = None,
     ) -> InterfaceGenerationResponse:
         project_repo = ProjectRepository(self.db)
         project = await project_repo.get_by_tracking_id(project_id)
@@ -344,12 +349,16 @@ class AIService:
                 detail="Project not found"
             )
 
+        prompt_description = data.description
+        if context_tables:
+            prompt_description += f"\n\nIMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. For forms or lists, add a 'connecte_a' property pointing to the table name."
+
         try:
             response = self.groq_client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION},
-                    {"role": "user", "content": data.description}
+                    {"role": "user", "content": prompt_description}
                 ],
                 temperature=0.2,
                 max_tokens=3000
@@ -410,6 +419,17 @@ class AIService:
             "desktop": TypePage.DESKTOP,
         }
 
+        # Fetch existing tables for connection mapping
+        table_mapping = {}
+        schema_stmt = select(Schema).where(Schema.project_id == project_id)
+        schema_result = await self.db.execute(schema_stmt)
+        schema_instance = schema_result.scalar_one_or_none()
+        if schema_instance:
+            tables_stmt = select(TableSchema).where(TableSchema.schema_id == schema_instance.tracking_id)
+            tables = list((await self.db.execute(tables_stmt)).scalars().all())
+            for t in tables:
+                table_mapping[t.name] = t.tracking_id
+
         pages_created = []
         components_created = 0
 
@@ -432,6 +452,9 @@ class AIService:
 
             for component_index, component_data in enumerate(page_data.get("components", [])):
                 ui_type = component_data.get("ui_type", "text")
+                connecte_a_name = component_data.get("connecte_a") or component_data.get("props", {}).get("connecte_a")
+                connecte_a_id = table_mapping.get(connecte_a_name) if connecte_a_name else None
+
                 composant = Composant(
                     page_id=page.tracking_id,
                     type=type_mapping.get(ui_type, TypeComposant.TEXTE),
@@ -445,7 +468,7 @@ class AIService:
                         "uiType": ui_type,
                         "props": component_data.get("props") or {},
                     },
-                    connecte_a=None,
+                    connecte_a=connecte_a_id,
                     ordre=component_index,
                 )
                 self.db.add(composant)
@@ -470,6 +493,91 @@ class AIService:
             pages_created=pages_created,
             components_created=components_created,
             raw_interface=interface_json,
+        )
+
+    async def generate_workflows(
+        self,
+        project_id: UUID,
+        description: str,
+        current_user: User,
+    ) -> int:
+        project_repo = ProjectRepository(self.db)
+        project = await project_repo.get_by_tracking_id(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        try:
+            response = self.groq_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_WORKFLOW_GENERATION},
+                    {"role": "user", "content": description}
+                ],
+                temperature=0.1,
+                max_tokens=3000
+            )
+            raw_content = response.choices[0].message.content
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Groq API error: {str(e)}")
+
+        try:
+            workflow_json = self._clean_json_response(raw_content)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=500, detail="AI returned invalid JSON for workflow generation.")
+
+        wf_repo = WorkflowRepository(self.db)
+        
+        workflows_created = 0
+        for wf_data in workflow_json.get("workflows", []):
+            await wf_repo.create(
+                project_id=project_id,
+                nom=wf_data.get("nom", "Workflow"),
+                description=wf_data.get("description", ""),
+                etapes=wf_data.get("etapes", [])
+            )
+            workflows_created += 1
+
+        conversation = await self.conv_repo.get_or_create(project_id)
+        await self.msg_repo.create(
+            conversation_id=conversation.tracking_id,
+            role="assistant",
+            content=f"I created {workflows_created} workflows for automation based on your description."
+        )
+
+        await self.db.commit()
+        return workflows_created
+
+    async def generate_app(
+        self,
+        project_id: UUID,
+        data: AppGenerationRequest,
+        current_user: User,
+    ) -> AppGenerationResponse:
+        """
+        Génère schéma + interface + workflows en une seule requête.
+        """
+        schema_resp = await self.generate_schema(
+            project_id,
+            SchemaGenerationRequest(description=data.description),
+            current_user,
+        )
+        interface_resp = await self.generate_interface(
+            project_id,
+            InterfaceGenerationRequest(description=data.description),
+            current_user,
+            context_tables=schema_resp.tables_created,
+        )
+        workflows_count = await self.generate_workflows(
+            project_id,
+            data.description,
+            current_user,
+        )
+        return AppGenerationResponse(
+            success=True,
+            message=f"Génération terminée. {len(schema_resp.tables_created)} tables, {len(interface_resp.pages_created)} pages, {workflows_count} workflows.",
+            schema=schema_resp,
+            interface=interface_resp,
+            workflows_created=workflows_count,
         )
 
     async def get_history(self, project_id: UUID) -> ConversationResponse:

@@ -13,6 +13,8 @@ from app.modules.ai.schemas import (
     SchemaGenerationResponse,
     InterfaceGenerationRequest,
     InterfaceGenerationResponse,
+    AppGenerationRequest,
+    AppGenerationResponse,
 )
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
@@ -92,6 +94,21 @@ async def generate_interface(
     service: AIService = Depends(get_ai_service),
 ) -> InterfaceGenerationResponse:
     return await service.generate_interface(project_id, data, current_user)
+
+
+@router.post(
+    "/projects/{project_id}/generate-app",
+    response_model=AppGenerationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate schema + interface from one description",
+)
+async def generate_app(
+    project_id: UUID,
+    data: AppGenerationRequest,
+    current_user: User = Depends(get_current_user),
+    service: AIService = Depends(get_ai_service),
+):
+    return await service.generate_app(project_id, data, current_user)
 
 
 @router.get(

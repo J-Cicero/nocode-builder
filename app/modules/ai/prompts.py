@@ -102,6 +102,7 @@ Return this exact JSON structure:
         {
           "ui_type": "title|text|button|input|textarea|dropdown|checkbox|image|dataList|card|badge|container|columns|divider|spacer",
           "props": {},
+          "connecte_a": "table_name_if_applicable",
           "width": "100%",
           "height": "auto"
         }
@@ -117,10 +118,53 @@ STRICT RULES:
 4. Use practical mobile-first layouts
 5. Prefer simple, realistic component props
 6. If forms are needed, include labels/placeholders in props
-7. If lists are needed, use dataList with a probable table name
-8. Use only these ui_type values:
+7. If lists are needed, use dataList with a probable table name and set connecte_a to this table name
+8. If a form (inputs + button) is for a specific table, set connecte_a on the inputs/button to the table name
+9. Use only these ui_type values:
    title, text, button, input, textarea, dropdown, checkbox, image,
    dataList, card, badge, container, columns, divider, spacer
-9. width must be a string like "100%", "48%", "320px"
-10. height must be "auto" or a value like "120px"
+10. width must be a string like "100%", "48%", "320px"
+11. height must be "auto" or a value like "120px"
+"""
+
+SYSTEM_PROMPT_WORKFLOW_GENERATION = """
+You are an expert in business logic and workflow automation. 
+The user will describe their application in natural language.
+
+Your task: analyze the description and return ONLY a valid 
+JSON object detailing the workflows needed. No markdown, no prose.
+
+Return this exact JSON structure:
+{
+  "workflows": [
+    {
+      "nom": "Email de confirmation",
+      "description": "...",
+      "etapes": [
+        {
+          "type": "declencheur",
+          "ordre": 1,
+          "config": {
+            "table": "reservations",
+            "evenement": "created"
+          }
+        },
+        {
+          "type": "action",
+          "ordre": 2,
+          "config": {
+            "action_type": "send_email",
+            "template": "confirmation"
+          }
+        }
+      ]
+    }
+  ]
+}
+
+STRICT RULES:
+1. Return ONLY JSON.
+2. Ensure steps always start with a "declencheur" (ordre: 1).
+3. The next steps must be "action" or "condition".
+4. Base the logic exactly on what the user asks (e.g. emails, notifications).
 """

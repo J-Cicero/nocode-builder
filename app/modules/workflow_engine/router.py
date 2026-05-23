@@ -10,6 +10,8 @@ from app.modules.workflow_engine.schema import (
     WorkflowUpdate,
     WorkflowResponse,
     ExecutionResponse,
+    WorkflowGraphResponse,
+    WorkflowGraphUpdate,
 )
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.models import User
@@ -122,3 +124,32 @@ async def get_workflow_executions(
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.get_executions(workflow_id)
+
+
+# ─── GRAPH (React Flow) ─────────────────────────────────────────
+
+@router.get(
+    "/{workflow_id}/graph",
+    response_model=WorkflowGraphResponse,
+    summary="Obtenir le graphe (nodes/edges) d'un workflow",
+)
+async def get_workflow_graph(
+    workflow_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    return await service.get_graph(workflow_id)
+
+
+@router.put(
+    "/{workflow_id}/graph",
+    response_model=WorkflowGraphResponse,
+    summary="Mettre à jour le graphe (nodes/edges) d'un workflow",
+)
+async def update_workflow_graph(
+    workflow_id: UUID,
+    data: WorkflowGraphUpdate,
+    current_user: User = Depends(get_current_user),
+    service: WorkflowService = Depends(get_workflow_service),
+):
+    return await service.update_graph(workflow_id, data)

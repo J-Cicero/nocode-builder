@@ -80,3 +80,38 @@ class ExecutionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ═══════════════════════════════════════════════════════════════
+#  GRAPH (React Flow compat)
+# ═══════════════════════════════════════════════════════════════
+
+class GraphPosition(BaseModel):
+    x: float = 0
+    y: float = 0
+
+
+class GraphNode(BaseModel):
+    id: UUID
+    type: TypeEtape
+    data: dict[str, Any] = {}
+    position: GraphPosition = GraphPosition()
+
+
+class GraphEdge(BaseModel):
+    id: str
+    source: UUID
+    target: UUID
+    label: Optional[str] = None
+    type: Optional[str] = "smoothstep"
+
+
+class WorkflowGraphResponse(BaseModel):
+    workflow_id: UUID
+    nodes: List[GraphNode]
+    edges: List[GraphEdge]
+
+
+class WorkflowGraphUpdate(BaseModel):
+    nodes: List[GraphNode]
+    edges: List[GraphEdge] = []

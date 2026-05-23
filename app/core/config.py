@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str
     VERCEL_TOKEN: str | None = None
     VERCEL_TEAM_SLUG: str | None = None
+    RAILWAY_API_TOKEN: str = ""
 
     @property
     def DATABASE_URL(self) -> str:
