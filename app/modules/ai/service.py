@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from uuid import UUID
-from groq import Groq
+from openai import AsyncOpenAI
+import time
 
 from app.core.config import settings
 from app.modules.ai.models import Conversation, Message
@@ -43,344 +44,204 @@ class AIService:
         self.interface_repo = InterfaceRepository(db)
         self.page_repo = PageRepository(db)
         self.composant_repo = ComposantRepository(db)
-        self.groq_client = Groq(api_key=settings.GROQ_API_KEY)
-        self.model = "llama-3.3-70b-versatile"
+        self.ai_client = AsyncOpenAI(
+            api_key=settings.AI_API_KEY,
+            base_url=settings.AI_BASE_URL
+        )
+        self.model = settings.AI_MODEL
 
     @staticmethod
     def _clean_json_response(raw_content: str) -> dict:
+        import re
+        import json
+
+        raw_content = re.sub(r'```json\s*', '', raw_content)
+        raw_content = re.sub(r'```', '', raw_content)
         raw_content = raw_content.strip()
-        if raw_content.startswith("```json"):
-            raw_content = raw_content[7:]
-        if raw_content.startswith("```"):
-            raw_content = raw_content[3:]
-        if raw_content.endswith("```"):
-            raw_content = raw_content[:-3]
-        raw_content = raw_content.strip()
-        return json.loads(raw_content)
+        raw_content = re.sub(r',\s*\}', '}', raw_content)
+        raw_content = re.sub(r',\s*\]', ']', raw_content)
 
-    @staticmethod
-    def _requested_devices_from_description(description: str) -> list[str]:
-        text = description.lower()
-        devices = []
-        if any(token in text for token in ["mobile", "phone", "smartphone"]):
-            devices.append("mobile")
-        if any(token in text for token in ["tablet", "tablette", "ipad"]):
-            devices.append("tablet")
-        if any(token in text for token in ["desktop", "web", "ordinateur", "bureau", "laptop"]):
-            devices.append("desktop")
-        return devices or ["mobile"]
+        try:
+            return json.loads(raw_content)
+        except json.JSONDecodeError as e:
+            print(f"Initial JSON parsing failed: {e}")
+            json_match = re.search(r'(\{.*\}|\[.*\])', raw_content, re.DOTALL)
+            if json_match:
+                json_string = json_match.group(0)
+                try:
+                    return json.loads(json_string)
+                except json.JSONDecodeError:
+                    raise ValueError("Failed to parse JSON even after extraction and cleaning.")
+            else:
+                raise ValueError("No valid JSON object found in the AI response.")
 
-    @staticmethod
-    def _ensure_requested_device_pages(interface_json: dict, requested_devices: list[str]) -> dict:
-        pages = interface_json.get("pages", [])
-        if not pages:
-            return interface_json
-
-        by_device = {}
-        for page in pages:
-            device = str(page.get("device", "mobile")).lower()
-            by_device.setdefault(device, []).append(page)
-
-        normalized_pages = list(pages)
-        for device in requested_devices:
-            if device in by_device:
-                continue
-
-            source_pages = by_device.get("mobile") or normalized_pages
-            cloned_pages = []
-            for page in source_pages:
-                clone = {
-                    **page,
-                    "device": device,
-                    "is_home": bool(page.get("is_home", False)),
-                    "components": list(page.get("components", [])),
-                }
-                cloned_pages.append(clone)
-            normalized_pages.extend(cloned_pages)
-            by_device[device] = cloned_pages
-
-        interface_json["pages"] = normalized_pages
-        return interface_json
-
-    async def chat(
-        self,
-        project_id: UUID,
-        data: MessageCreate,
-        current_user: User,
-    ) -> MessageResponse:
-        """
-        Chat with AI about a specific project.
-        Returns the AI's response as a MessageResponse.
-        """
-        # 1. Verify project exists
+    async def chat(self, project_id: UUID, data: MessageCreate, current_user: User) -> MessageResponse:
+        start_time = time.time()
+        print(f"🚀 [AI CHAT] Starting request for project {project_id}...")
         project_repo = ProjectRepository(self.db)
         project = await project_repo.get_by_tracking_id(project_id)
         if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
-
-        # 2. Get or create conversation
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
         conversation = await self.conv_repo.get_or_create(project_id)
-
-        # 3. Save user message
-        user_message = await self.msg_repo.create(
-            conversation_id=conversation.tracking_id,
-            role="user",
-            content=data.content
-        )
-
-        # 4. Get last 20 messages for context
-        history = await self.msg_repo.get_by_conversation(
-            conversation.tracking_id,
-            limit=20
-        )
-
-        # 5. Build messages list for Groq with project context
+        await self.msg_repo.create(conversation_id=conversation.tracking_id, role="user", content=data.content)
+        history = await self.msg_repo.get_by_conversation(conversation.tracking_id, limit=20)
         project_context = await self._build_project_context(project_id)
         messages = [{"role": "system", "content": SYSTEM_PROMPT_CHAT}]
         if project_context:
             messages.append({"role": "system", "content": project_context})
         for msg in history:
-            messages.append({
-                "role": msg.role.value,
-                "content": msg.content
-            })
-
-        # 6. Call Groq API
+            messages.append({"role": msg.role.value, "content": msg.content})
+        tools = [
+            {"type": "function", "function": {"name": "generate_app", "description": "Generate both database schema and user interface in one go.", "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Complete details about the data and the screens"}}, "required": ["description"]}}},
+            {"type": "function", "function": {"name": "generate_schema", "description": "Generate only database tables and fields from description", "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Details about the tables and data structure"}}, "required": ["description"]}}},
+            {"type": "function", "function": {"name": "generate_interface", "description": "Generate only UI pages and components from description", "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Details about the screens and UI elements"}}, "required": ["description"]}}}
+        ]
         try:
-            response = self.groq_client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                temperature=0.3,
-                max_tokens=1024
-            )
-            ai_content = response.choices[0].message.content
+            response = await self.ai_client.chat.completions.create(model=self.model, messages=messages, tools=tools, tool_choice="auto", temperature=0.3, max_tokens=8192)
+            response_message = response.choices[0].message
+            tool_calls = response_message.tool_calls
+            ai_content = response_message.content or ""
+            if tool_calls:
+                tool_results = []
+                for tool_call in tool_calls:
+                    function_name = tool_call.function.name
+                    try:
+                        print(f"🛠️ [AI TOOL] Calling {function_name}...")
+                        f_start = time.time()
+                        function_args = json.loads(tool_call.function.arguments)
+                        if function_name == "generate_app":
+                            await self.generate_app(project_id, AppGenerationRequest(**function_args), current_user)
+                            tool_results.append("✅ Application complète générée avec succès.")
+                        elif function_name == "generate_schema":
+                            await self.generate_schema(project_id, SchemaGenerationRequest(**function_args), current_user)
+                            tool_results.append("✅ Les informations (données) ont été structurées.")
+                        elif function_name == "generate_interface":
+                            await self.generate_interface(project_id, InterfaceGenerationRequest(**function_args), current_user)
+                            tool_results.append("✅ L'interface utilisateur (les écrans) a été créée.")
+                        print(f"⏱️ [AI TOOL] {function_name} finished in {time.time() - f_start:.2f}s")
+                    except Exception as e:
+                        print(f"❌ [AI TOOL ERROR] Tool '{function_name}' failed: {str(e)}")
+                        tool_results.append(f"⚠️ J'ai rencontré une erreur interne en essayant de '{function_name}'.")
+                if tool_results:
+                    ai_content = (ai_content or "") + "
+
+---
+
+" + "
+".join(tool_results)
+            if not ai_content:
+                ai_content = "Désolé, je n'ai pas pu générer de réponse."
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Groq API error: {str(e)}"
-            )
-
-        # 7. Save AI response
-        ai_message = await self.msg_repo.create(
-            conversation_id=conversation.tracking_id,
-            role="assistant",
-            content=ai_content
-        )
-
-        # 8. Return response
+            print(f"❌ Chat Tool Error: {e}")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {str(e)}")
+        ai_message = await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=ai_content)
         await self.db.commit()
+        print(f"🏁 [AI CHAT] Total execution time: {time.time() - start_time:.2f}s")
         return MessageResponse.model_validate(ai_message)
 
-    async def generate_schema(
-        self,
-        project_id: UUID,
-        data: SchemaGenerationRequest,
-        current_user: User,
-    ) -> SchemaGenerationResponse:
-        """
-        Generate database schema from natural language description.
-        Creates tables, fields, and relations in the database.
-        """
-        # 1. Verify project exists
+    async def generate_schema(self, project_id: UUID, data: SchemaGenerationRequest, current_user: User) -> SchemaGenerationResponse:
         project_repo = ProjectRepository(self.db)
         project = await project_repo.get_by_tracking_id(project_id)
         if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
-
-        # 2. Call Groq with schema generation prompt
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
         try:
-            response = self.groq_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_SCHEMA_GENERATION},
-                    {"role": "user", "content": data.description}
-                ],
-                temperature=0.1,
-                max_tokens=3000
-            )
+            response = await self.ai_client.chat.completions.create(model=self.model, messages=[{"role": "system", "content": SYSTEM_PROMPT_SCHEMA_GENERATION}, {"role": "user", "content": data.description}], temperature=0.1, max_tokens=8192)
             raw_content = response.choices[0].message.content
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Groq API error: {str(e)}"
-            )
-
-        # 3. Parse JSON response
-        # Strip any accidental backticks or "json" prefix
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {str(e)}")
         try:
             schema_json = self._clean_json_response(raw_content)
-        except json.JSONDecodeError:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="AI returned invalid JSON. Please try again with a clearer description."
-            )
-
-        # 4. Create schema if not exists
+        except Exception as e:
+            print(f"❌ AI JSON Parsing Error in generate_schema: {e}")
+            print(f"Raw content was: {raw_content[:500]}...")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI returned invalid JSON for schema: {str(e)}")
         schema_stmt = select(Schema).where(Schema.project_id == project_id)
         schema_result = await self.db.execute(schema_stmt)
         schema = schema_result.scalar_one_or_none()
-
         if not schema:
             schema = Schema(project_id=project_id)
             self.db.add(schema)
             await self.db.flush()
             await self.db.refresh(schema)
+        
+        # Smart synchronization: delete old schema before creating new one
+        existing_tables = await self.db.execute(select(TableSchema).where(TableSchema.schema_id == schema.tracking_id))
+        for table in existing_tables.scalars().all():
+            await self.db.delete(table)
+        await self.db.flush()
 
-        # 5. Create tables and fields
-        table_mapping = {}  # table_name -> TableSchema tracking_id
-
+        table_mapping = {}
         for table_data in schema_json.get("tables", []):
             table_name = table_data.get("name")
             display_name = table_data.get("display_name", table_name)
-
-            # Create TableSchema
-            table = TableSchema(
-                schema_id=schema.tracking_id,
-                name=table_name,
-                display_name=display_name
-            )
+            table = TableSchema(schema_id=schema.tracking_id, name=table_name, display_name=display_name)
             self.db.add(table)
             await self.db.flush()
             await self.db.refresh(table)
-
             table_mapping[table_name] = table.tracking_id
-
-            # Create fields
             for field_data in table_data.get("fields", []):
                 field_name = field_data.get("name")
                 field_type = field_data.get("type", "text")
-
-                # Map string type to FieldType enum
                 try:
                     field_type_enum = FieldType[field_type.upper()]
                 except KeyError:
                     field_type_enum = FieldType.TEXT
-
-                field_config = {
-                    "default": field_data.get("default")
-                }
-
-                field = Field(
-                    table_id=table.tracking_id,
-                    name=field_name,
-                    display_name=field_name.replace("_", " ").title(),
-                    type=field_type_enum,
-                    required=field_data.get("required", False),
-                    unique=field_data.get("unique", False),
-                    config=field_config
-                )
+                field_config = {"default": field_data.get("default")}
+                field = Field(table_id=table.tracking_id, name=field_name, display_name=field_name.replace("_", " ").title(), type=field_type_enum, required=field_data.get("required", False), unique=field_data.get("unique", False), config=field_config)
                 self.db.add(field)
-            
             await self.db.flush()
-
-        # 6. Create relations
         relations_count = 0
         for relation_data in schema_json.get("relations", []):
             from_table = relation_data.get("from_table")
             to_table = relation_data.get("to_table")
             relation_type = relation_data.get("type", "one_to_many")
-
             if from_table in table_mapping and to_table in table_mapping:
-                # Map string type to RelationType enum
                 try:
                     relation_type_enum = RelationType[relation_type.upper().replace("-", "_")]
                 except KeyError:
                     relation_type_enum = RelationType.ONE_TO_MANY
-
                 relation_name = relation_data.get("name") or f"{from_table}_{relation_type}_{to_table}"
-                relation = Relation(
-                    schema_id=schema.tracking_id,
-                    source_table_id=table_mapping[from_table],
-                    target_table_id=table_mapping[to_table],
-                    name=relation_name,
-                    type=relation_type_enum,
-                    description=relation_data.get("description"),
-                    source_key=relation_data.get("source_key", "id"),
-                    target_key=relation_data.get("target_key", "id"),
-                )
+                relation = Relation(schema_id=schema.tracking_id, source_table_id=table_mapping[from_table], target_table_id=table_mapping[to_table], name=relation_name, type=relation_type_enum, description=relation_data.get("description"), source_key=relation_data.get("source_key", "id"), target_key=relation_data.get("target_key", "id"))
                 self.db.add(relation)
                 relations_count += 1
-
             await self.db.flush()
-
-        # 7. Save summary message in conversation
         conversation = await self.conv_repo.get_or_create(project_id)
         table_names = list(table_mapping.keys())
-        summary = (
-            f"I analyzed your description and created {len(table_names)} tables: "
-            f"{', '.join(table_names)}. "
-            f"You can now see them in the Tables tab."
-        )
-        await self.msg_repo.create(
-            conversation_id=conversation.tracking_id,
-            role="assistant",
-            content=summary
-        )
-
-        # 8. Commit all changes
+        summary = f"I analyzed your description and created {len(table_names)} tables: {', '.join(table_names)}. You can now see them in the Tables tab."
+        await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
         await self.db.commit()
+        return SchemaGenerationResponse(success=True, message=f"Successfully created {len(table_mapping)} tables and {relations_count} relations", tables_created=table_names, relations_created=relations_count, raw_schema=schema_json)
 
-        return SchemaGenerationResponse(
-            success=True,
-            message=f"Successfully created {len(table_mapping)} tables and {relations_count} relations",
-            tables_created=table_names,
-            relations_created=relations_count,
-            raw_schema=schema_json
-        )
-
-    async def generate_interface(
-        self,
-        project_id: UUID,
-        data: InterfaceGenerationRequest,
-        current_user: User,
-        context_tables: list[str] = None,
-    ) -> InterfaceGenerationResponse:
+    async def generate_interface(self, project_id: UUID, data: InterfaceGenerationRequest, current_user: User, context_tables: list[str] = None) -> InterfaceGenerationResponse:
         project_repo = ProjectRepository(self.db)
         project = await project_repo.get_by_tracking_id(project_id)
         if not project:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
-            )
-
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+        if not context_tables:
+            schema_stmt = select(Schema).where(Schema.project_id == project_id)
+            schema = (await self.db.execute(schema_stmt)).scalar_one_or_none()
+            if not schema or not (await self.db.execute(select(TableSchema).where(TableSchema.schema_id == schema.tracking_id).limit(1))).first():
+                print("⚠️ [ARCH FIX] No schema found. Generating schema before interface.")
+                schema_resp = await self.generate_schema(project_id, SchemaGenerationRequest(description=data.description), current_user)
+                context_tables = schema_resp.tables_created
         prompt_description = data.description
         if context_tables:
-            prompt_description += f"\n\nIMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. For forms or lists, add a 'connecte_a' property pointing to the table name."
+            prompt_description += f"
 
+IMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. For forms or lists, add a 'connecte_a' property pointing to the table name."
         try:
-            response = self.groq_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION},
-                    {"role": "user", "content": prompt_description}
-                ],
-                temperature=0.2,
-                max_tokens=3000
-            )
+            response = await self.ai_client.chat.completions.create(model=self.model, messages=[{"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION}, {"role": "user", "content": prompt_description}], temperature=0.2, max_tokens=8192)
             raw_content = response.choices[0].message.content
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Groq API error: {str(e)}"
-            )
-
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {str(e)}")
         try:
             interface_json = self._clean_json_response(raw_content)
-        except json.JSONDecodeError:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="AI returned invalid JSON for interface generation."
-            )
-
+        except Exception as e:
+            print(f"❌ AI JSON Parsing Error: {e}")
+            print(f"Raw content was: {raw_content[:500]}...")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI returned invalid JSON: {str(e)}")
         requested_devices = self._requested_devices_from_description(data.description)
         interface_json = self._ensure_requested_device_pages(interface_json, requested_devices)
-
         interface = await self.interface_repo.get_by_project_id(project_id)
         if not interface:
             try:
@@ -388,242 +249,68 @@ class AIService:
             except IntegrityError:
                 await self.db.rollback()
                 interface = await self.interface_repo.get_by_project_id(project_id)
-                if not interface:
-                    raise
-
+                if not interface: raise
         existing_pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
         for page in existing_pages:
             await self.page_repo.delete(page)
         await self.db.flush()
-
-        type_mapping = {
-            "container": TypeComposant.CONTENEUR,
-            "columns": TypeComposant.CONTENEUR,
-            "divider": TypeComposant.CONTENEUR,
-            "spacer": TypeComposant.CONTENEUR,
-            "title": TypeComposant.TEXTE,
-            "text": TypeComposant.TEXTE,
-            "badge": TypeComposant.TEXTE,
-            "button": TypeComposant.BOUTON,
-            "input": TypeComposant.CHAMP_INPUT,
-            "textarea": TypeComposant.CHAMP_INPUT,
-            "dropdown": TypeComposant.CHAMP_INPUT,
-            "checkbox": TypeComposant.CHAMP_INPUT,
-            "image": TypeComposant.IMAGE,
-            "dataList": TypeComposant.LISTE,
-            "card": TypeComposant.CARTE,
-        }
-        page_type_mapping = {
-            "mobile": TypePage.MOBILE,
-            "tablet": TypePage.TABLET,
-            "desktop": TypePage.DESKTOP,
-        }
-
-        # Fetch existing tables for connection mapping
-        table_mapping = {}
-        schema_stmt = select(Schema).where(Schema.project_id == project_id)
-        schema_result = await self.db.execute(schema_stmt)
-        schema_instance = schema_result.scalar_one_or_none()
-        if schema_instance:
-            tables_stmt = select(TableSchema).where(TableSchema.schema_id == schema_instance.tracking_id)
-            tables = list((await self.db.execute(tables_stmt)).scalars().all())
-            for t in tables:
-                table_mapping[t.name] = t.tracking_id
-
+        type_mapping = {"container": TypeComposant.CONTENEUR, "columns": TypeComposant.CONTENEUR, "divider": TypeComposant.CONTENEUR, "spacer": TypeComposant.CONTENEUR, "title": TypeComposant.TEXTE, "text": TypeComposant.TEXTE, "badge": TypeComposant.TEXTE, "button": TypeComposant.BOUTON, "input": TypeComposant.CHAMP_INPUT, "textarea": TypeComposant.CHAMP_INPUT, "dropdown": TypeComposant.CHAMP_INPUT, "checkbox": TypeComposant.CHAMP_INPUT, "image": TypeComposant.IMAGE, "dataList": TypeComposant.LISTE, "card": TypeComposant.CARTE}
+        page_type_mapping = {"mobile": TypePage.MOBILE, "tablet": TypePage.TABLET, "desktop": TypePage.DESKTOP}
         pages_created = []
         components_created = 0
-
         for page_index, page_data in enumerate(interface_json.get("pages", [])):
             page_name = page_data.get("name") or f"Page {page_index + 1}"
             page_path = page_data.get("path") or f"/page-{page_index + 1}"
             page_device = str(page_data.get("device", "mobile")).lower()
-            page = Page(
-                interface_id=interface.tracking_id,
-                nom=page_name,
-                chemin=page_path,
-                type_page=page_type_mapping.get(page_device, TypePage.MOBILE),
-                est_accueil=bool(page_data.get("is_home", page_index == 0)),
-                ordre=page_index,
-            )
+            page = Page(interface_id=interface.tracking_id, nom=page_name, chemin=page_path, type_page=page_type_mapping.get(page_device, TypePage.MOBILE), est_accueil=bool(page_data.get("is_home", page_index == 0)), ordre=page_index)
             self.db.add(page)
             await self.db.flush()
             await self.db.refresh(page)
             pages_created.append(page_name)
-
             for component_index, component_data in enumerate(page_data.get("components", [])):
                 ui_type = component_data.get("ui_type", "text")
                 connecte_a_name = component_data.get("connecte_a") or component_data.get("props", {}).get("connecte_a")
-                connecte_a_id = table_mapping.get(connecte_a_name) if connecte_a_name else None
-
-                composant = Composant(
-                    page_id=page.tracking_id,
-                    type=type_mapping.get(ui_type, TypeComposant.TEXTE),
-                    parent_id=None,
-                    position_x=0,
-                    position_y=component_index,
-                    largeur=str(component_data.get("width", "100%")),
-                    hauteur=str(component_data.get("height", "auto")),
-                    styles=component_data.get("styles") or {},
-                    config={
-                        "uiType": ui_type,
-                        "props": component_data.get("props") or {},
-                    },
-                    connecte_a=connecte_a_id,
-                    ordre=component_index,
-                )
+                composant = Composant(page_id=page.tracking_id, type=type_mapping.get(ui_type, TypeComposant.TEXTE), parent_id=None, position_x=0, position_y=component_index, largeur=str(component_data.get("width", "100%")), hauteur=str(component_data.get("height", "auto")), styles=component_data.get("styles") or {}, config={"uiType": ui_type, "props": component_data.get("props") or {}}, connecte_a=connecte_a_name, ordre=component_index)
                 self.db.add(composant)
                 components_created += 1
-
         conversation = await self.conv_repo.get_or_create(project_id)
-        summary = (
-            f"I created {len(pages_created)} pages and {components_created} components "
-            f"for your interface. You can review them in the Interface tab."
-        )
-        await self.msg_repo.create(
-            conversation_id=conversation.tracking_id,
-            role="assistant",
-            content=summary
-        )
-
+        summary = f"I created {len(pages_created)} pages and {components_created} components for your interface. You can review them in the Interface tab."
+        await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
         await self.db.commit()
+        return InterfaceGenerationResponse(success=True, message=f"Successfully created {len(pages_created)} pages and {components_created} components", pages_created=pages_created, components_created=components_created, raw_interface=interface_json)
 
-        return InterfaceGenerationResponse(
-            success=True,
-            message=f"Successfully created {len(pages_created)} pages and {components_created} components",
-            pages_created=pages_created,
-            components_created=components_created,
-            raw_interface=interface_json,
-        )
-
-    async def generate_workflows(
-        self,
-        project_id: UUID,
-        description: str,
-        current_user: User,
-    ) -> int:
-        project_repo = ProjectRepository(self.db)
-        project = await project_repo.get_by_tracking_id(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Project not found")
-
-        try:
-            response = self.groq_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_WORKFLOW_GENERATION},
-                    {"role": "user", "content": description}
-                ],
-                temperature=0.1,
-                max_tokens=3000
-            )
-            raw_content = response.choices[0].message.content
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Groq API error: {str(e)}")
-
-        try:
-            workflow_json = self._clean_json_response(raw_content)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=500, detail="AI returned invalid JSON for workflow generation.")
-
-        wf_repo = WorkflowRepository(self.db)
-        
-        workflows_created = 0
-        for wf_data in workflow_json.get("workflows", []):
-            await wf_repo.create(
-                project_id=project_id,
-                nom=wf_data.get("nom", "Workflow"),
-                description=wf_data.get("description", ""),
-                etapes=wf_data.get("etapes", [])
-            )
-            workflows_created += 1
-
-        conversation = await self.conv_repo.get_or_create(project_id)
-        await self.msg_repo.create(
-            conversation_id=conversation.tracking_id,
-            role="assistant",
-            content=f"I created {workflows_created} workflows for automation based on your description."
-        )
-
-        await self.db.commit()
-        return workflows_created
-
-    async def generate_app(
-        self,
-        project_id: UUID,
-        data: AppGenerationRequest,
-        current_user: User,
-    ) -> AppGenerationResponse:
-        """
-        Génère schéma + interface + workflows en une seule requête.
-        """
-        schema_resp = await self.generate_schema(
-            project_id,
-            SchemaGenerationRequest(description=data.description),
-            current_user,
-        )
-        interface_resp = await self.generate_interface(
-            project_id,
-            InterfaceGenerationRequest(description=data.description),
-            current_user,
-            context_tables=schema_resp.tables_created,
-        )
-        workflows_count = await self.generate_workflows(
-            project_id,
-            data.description,
-            current_user,
-        )
-        return AppGenerationResponse(
-            success=True,
-            message=f"Génération terminée. {len(schema_resp.tables_created)} tables, {len(interface_resp.pages_created)} pages, {workflows_count} workflows.",
-            schema=schema_resp,
-            interface=interface_resp,
-            workflows_created=workflows_count,
-        )
+    async def generate_app(self, project_id: UUID, data: AppGenerationRequest, current_user: User) -> AppGenerationResponse:
+        schema_resp = await self.generate_schema(project_id, SchemaGenerationRequest(description=data.description), current_user)
+        interface_resp = await self.generate_interface(project_id, InterfaceGenerationRequest(description=data.description), current_user, context_tables=schema_resp.tables_created)
+        workflows_count = await self.generate_workflows(project_id, data.description, current_user)
+        return AppGenerationResponse(success=True, message=f"Génération terminée. {len(schema_resp.tables_created)} tables, {len(interface_resp.pages_created)} pages, {workflows_count} workflows.", db_schema=schema_resp, interface=interface_resp, workflows_created=workflows_count)
 
     async def get_history(self, project_id: UUID) -> ConversationResponse:
-        """Get conversation history for a project"""
         conversation = await self.conv_repo.get_or_create(project_id)
         return ConversationResponse.model_validate(conversation)
 
     async def clear_history(self, project_id: UUID) -> dict:
-        """Clear all messages in a conversation"""
         conversation = await self.conv_repo.get_by_project_id(project_id)
         if conversation:
             await self.conv_repo.delete_messages(conversation.tracking_id)
             await self.db.commit()
-
         return {"message": "Conversation cleared successfully"}
 
     async def _build_project_context(self, project_id: UUID) -> str:
-        """Summarize current schema and interface for grounding the chat."""
         parts: list[str] = []
-
-        # Schema summary
         schema_stmt = select(Schema).where(Schema.project_id == project_id)
         schema = (await self.db.execute(schema_stmt)).scalar_one_or_none()
         if schema:
-            tables_stmt = (
-                select(TableSchema)
-                .where(TableSchema.schema_id == schema.tracking_id)
-                .order_by(TableSchema.created_at.desc())
-            )
+            tables_stmt = (select(TableSchema).where(TableSchema.schema_id == schema.tracking_id).order_by(TableSchema.created_at.desc()))
             tables = list((await self.db.execute(tables_stmt)).scalars().all())
             table_map = {t.tracking_id: t.name for t in tables}
             table_summaries = []
             for table in tables[:6]:
-                fields_stmt = (
-                    select(Field)
-                    .where(Field.table_id == table.tracking_id)
-                    .order_by(Field.created_at)
-                )
+                fields_stmt = (select(Field).where(Field.table_id == table.tracking_id).order_by(Field.created_at))
                 fields = list((await self.db.execute(fields_stmt)).scalars().all())
                 field_names = [f.name for f in fields[:6]]
                 table_summaries.append(f"{table.name}: " + (", ".join(field_names) if field_names else "no fields"))
-            relations_stmt = (
-                select(Relation)
-                .where(Relation.schema_id == schema.tracking_id)
-                .order_by(Relation.created_at.desc())
-            )
+            relations_stmt = (select(Relation).where(Relation.schema_id == schema.tracking_id).order_by(Relation.created_at.desc()))
             relations = list((await self.db.execute(relations_stmt)).scalars().all())
             relation_summaries = []
             for rel in relations[:6]:
@@ -634,29 +321,20 @@ class AIService:
             parts.append("SCHEMA: " + ("; ".join(table_summaries) if table_summaries else "none"))
             if relation_summaries:
                 parts.append("RELATIONS: " + "; ".join(relation_summaries))
-
-        # Interface summary
         interface_stmt = select(Interface).where(Interface.project_id == project_id)
         interface = (await self.db.execute(interface_stmt)).scalar_one_or_none()
         if interface:
-            pages_stmt = (
-                select(Page)
-                .where(Page.interface_id == interface.tracking_id)
-                .order_by(Page.created_at)
-            )
+            pages_stmt = (select(Page).where(Page.interface_id == interface.tracking_id).order_by(Page.created_at))
             pages = list((await self.db.execute(pages_stmt)).scalars().all())
             page_summaries = []
             for page in pages[:6]:
-                comps_stmt = (
-                    select(Composant)
-                    .where(Composant.page_id == page.tracking_id)
-                )
+                comps_stmt = (select(Composant).where(Composant.page_id == page.tracking_id))
                 comps = list((await self.db.execute(comps_stmt)).scalars().all())
-                page_summaries.append(
-                    f"{page.nom} [{page.chemin}] device={page.type_page} comps={len(comps)}"
-                )
+                comp_types = [c.type.value for c in comps[:10]]
+                page_summaries.append(f"{page.nom} [{page.chemin}] device={page.type_page} components={','.join(comp_types) if comp_types else 'none'}")
             parts.append("INTERFACE: " + ("; ".join(page_summaries) if page_summaries else "none"))
-
         if not parts:
             return ""
-        return "PROJECT CONTEXT:\n" + "\n".join(parts)
+        return "PROJECT CONTEXT:
+" + "
+".join(parts)

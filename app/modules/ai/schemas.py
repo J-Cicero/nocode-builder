@@ -82,6 +82,6 @@ class AppGenerationRequest(BaseModel):
 class AppGenerationResponse(BaseModel):
     success: bool
     message: str
-    schema: SchemaGenerationResponse
+    db_schema: SchemaGenerationResponse
     interface: InterfaceGenerationResponse
     workflows_created: int = 0

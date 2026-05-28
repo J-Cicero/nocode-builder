@@ -16,7 +16,9 @@ class Settings(BaseSettings):
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str
     
-    GROQ_API_KEY: str
+    AI_API_KEY: str
+    AI_BASE_URL: str = "https://api.asi1.ai/v1"
+    AI_MODEL: str = "gpt-4o"
     VERCEL_TOKEN: str | None = None
     VERCEL_TEAM_SLUG: str | None = None
     RAILWAY_API_TOKEN: str = ""
