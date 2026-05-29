@@ -439,6 +439,7 @@ async def delete(
 from fastapi.middleware.cors import CORSMiddleware
 from database import Base, engine
 from auth.router import router as auth_router
+from core.config import settings
 {routes_import}
 
 Base.metadata.create_all(bind=engine)
@@ -459,6 +460,15 @@ app.include_router(auth_router, prefix="/api")
 @app.get("/")
 async def root():
     return {{"message": "API Full-Stack en ligne"}}
+
+@app.get("/config")
+async def get_config():
+    """Retourne la configuration de l'application (utilisée par le frontend)"""
+    return {{
+        "api_url": "{{BASE_URL}}",
+        "app_name": "Application Générée",
+        "version": "1.0.0"
+    }}
 '''
         self._write_file(f"{base}/main.py", main)
 
@@ -467,6 +477,8 @@ async def root():
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app_db
 SECRET_KEY=votre-clé-très-secrète-ici
 ACCESS_TOKEN_EXPIRE_HOURS=24
+# Optional: Override the backend API URL for frontend
+# VITE_API_URL=http://localhost:8000/api
 '''
         self._write_file(f"{base}/.env.example", env)
 
@@ -502,6 +514,7 @@ python-multipart==0.0.6
         front_dir = f"{base}/frontend"
         os.makedirs(f"{front_dir}/src/pages", exist_ok=True)
         os.makedirs(f"{front_dir}/src/api", exist_ok=True)
+        os.makedirs(f"{front_dir}/src/context", exist_ok=True)
         
         # package.json
         package_json = '''{
@@ -526,6 +539,14 @@ python-multipart==0.0.6
   }
 }'''
         self._write_file(f"{front_dir}/package.json", package_json)
+
+        # .env.example pour le frontend
+        frontend_env = '''# URL de base du backend API
+# Par défaut, le frontend essaie de charger la config depuis /config
+# Si /config n'est pas disponible, utilise cette URL comme fallback
+VITE_API_URL=http://localhost:8000/api
+'''
+        self._write_file(f"{front_dir}/.env.example", frontend_env)
 
         # vite.config.js
         vite_config = '''import { defineConfig } from 'vite'
@@ -555,11 +576,14 @@ export default defineConfig({
         main_jsx = '''import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import { ApiProvider } from './context/ApiContext.jsx'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    <ApiProvider>
+      <App />
+    </ApiProvider>
   </React.StrictMode>,
 )'''
         self._write_file(f"{front_dir}/src/main.jsx", main_jsx)
@@ -611,20 +635,98 @@ body {
 '''
         self._write_file(f"{front_dir}/src/index.css", index_css)
 
-        # src/api/axios.js
+        # src/context/ApiContext.jsx
+        api_context = '''import React, { createContext, useState, useEffect } from 'react';
+import axios from 'axios';
+
+export const ApiContext = createContext(null);
+
+export function ApiProvider({ children }) {
+  const [api, setApi] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const initializeApi = async () => {
+      try {
+        // Essayer d'obtenir la config du serveur
+        const fallbackUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        const configUrl = `${fallbackUrl.replace('/api', '')}/config`;
+
+        const response = await axios.get(configUrl);
+        const { api_url } = response.data;
+
+        const apiInstance = axios.create({
+          baseURL: api_url,
+        });
+
+        apiInstance.interceptors.request.use(config => {
+          config.headers.Authorization = 'Bearer test-token';
+          return config;
+        });
+
+        setApi(apiInstance);
+      } catch (err) {
+        console.warn('Impossible de charger /config, utilisation du fallback', err);
+
+        // Fallback: utiliser VITE_API_URL
+        const fallbackUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+        const apiInstance = axios.create({
+          baseURL: fallbackUrl,
+        });
+
+        apiInstance.interceptors.request.use(config => {
+          config.headers.Authorization = 'Bearer test-token';
+          return config;
+        });
+
+        setApi(apiInstance);
+        setError('Configuration serveur non disponible, fallback utilisé');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeApi();
+  }, []);
+
+  return (
+    <ApiContext.Provider value={{ api, loading, error }}>
+      {children}
+    </ApiContext.Provider>
+  );
+}
+
+export function useApi() {
+  const context = React.useContext(ApiContext);
+  if (!context) {
+    throw new Error('useApi must be used within ApiProvider');
+  }
+  return context;
+}
+'''
+        self._write_file(f"{front_dir}/src/context/ApiContext.jsx", api_context)
+
+        # src/api/axios.js - Export une fonction qui attend le contexte
         axios_js = '''import axios from 'axios';
 
-const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000/api',
-});
+// Cette fonction est utilisée uniquement si ApiContext n'est pas disponible (fallback)
+export const createApiInstance = (baseURL) => {
+  const api = axios.create({
+    baseURL: baseURL || 'http://localhost:8000/api',
+  });
 
-// Mock d'auth pour simplifier les requêtes (test-token)
-api.interceptors.request.use(config => {
-  config.headers.Authorization = 'Bearer test-token';
-  return config;
-});
+  api.interceptors.request.use(config => {
+    config.headers.Authorization = 'Bearer test-token';
+    return config;
+  });
 
-export default api;'''
+  return api;
+};
+
+// Export par défaut pour backward compatibility
+export default createApiInstance('http://localhost:8000/api');
+'''
         self._write_file(f"{front_dir}/src/api/axios.js", axios_js)
 
         # Map table UUID to table Name
@@ -648,14 +750,41 @@ export default api;'''
         # src/App.jsx
         app_jsx = f'''import React from 'react';
 import {{ BrowserRouter, Routes, Route }} from 'react-router-dom';
+import {{ useApi }} from './context/ApiContext';
 {"".join([f"{i}\\n" for i in app_imports])}
+
+function AppContent() {{
+  const {{ api, loading, error }} = useApi();
+
+  if (loading) {{
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        fontSize: '18px'
+      }}>
+        Chargement de la configuration...
+      </div>
+    );
+  }}
+
+  if (error && error.includes('Configuration')) {{
+    console.warn(error);
+  }}
+
+  return (
+    <Routes>
+      {"".join([f"{r}\\n      " for r in app_routes])}
+    </Routes>
+  );
+}}
 
 function App() {{
   return (
     <BrowserRouter>
-      <Routes>
-        {"".join([f"{r}\\n        " for r in app_routes])}
-      </Routes>
+      <AppContent />
     </BrowserRouter>
   );
 }}
@@ -667,8 +796,8 @@ export default App;
 
     def _generate_react_page(self, page_name: str, comps: list, table_map: dict) -> str:
         imports = ["import React, { useState, useEffect } from 'react';"]
-        imports.append("import api from '../api/axios';")
-        
+        imports.append("import { useApi } from '../context/ApiContext';")
+
         state_declarations = []
         effects = []
         render_elements = []
@@ -679,7 +808,10 @@ export default App;
             ui_type = comp.config.get("uiType") if comp.config else "text"
             if table_name and ui_type in ["input", "textarea", "dropdown", "checkbox", "button"]:
                 form_tables.add(table_name)
-                
+
+        # Ajouter le hook useApi au début
+        state_declarations.insert(0, "const { api } = useApi();")
+
         for table in form_tables:
             state_declarations.append(f"const [form{self._capitalize(table)}, setForm{self._capitalize(table)}] = useState({{}});")
             state_declarations.append(f'''

@@ -1,5 +1,7 @@
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sqlalchemy import select
 from uuid import UUID
 from datetime import datetime
 import time
@@ -47,27 +49,43 @@ class WorkflowService:
             description=data.description,
             etapes=[etape.dict() for etape in data.etapes],
         )
-        return WorkflowResponse.from_orm(workflow)
+        return WorkflowResponse.model_validate(workflow)
 
     async def get_workflow(self, tracking_id: UUID) -> WorkflowResponse:
-        workflow = await self.workflow_repo.get_by_tracking_id(tracking_id)
+        result = await self.db.execute(
+            select(Workflow)
+            .options(selectinload(Workflow.etapes))
+            .where(Workflow.tracking_id == tracking_id)
+        )
+        workflow = result.scalar_one_or_none()
         if not workflow:
             raise HTTPException(status_code=404, detail="Workflow introuvable")
-        return WorkflowResponse.from_orm(workflow)
+        return WorkflowResponse.model_validate(workflow)
 
     async def get_project_workflows(self, project_id: UUID) -> list[WorkflowResponse]:
-        workflows = await self.workflow_repo.get_by_project_id(project_id)
-        return [WorkflowResponse.from_orm(w) for w in workflows]
+        result = await self.db.execute(
+            select(Workflow)
+            .options(selectinload(Workflow.etapes))
+            .where(Workflow.project_id == project_id)
+            .order_by(Workflow.created_at.desc())
+        )
+        workflows = result.scalars().all()
+        return [WorkflowResponse.model_validate(w) for w in workflows]
 
     async def update_workflow(
         self,
         tracking_id: UUID,
         data: WorkflowUpdate,
     ) -> WorkflowResponse:
-        workflow = await self.workflow_repo.get_by_tracking_id(tracking_id)
+        result = await self.db.execute(
+            select(Workflow)
+            .options(selectinload(Workflow.etapes))
+            .where(Workflow.tracking_id == tracking_id)
+        )
+        workflow = result.scalar_one_or_none()
         if not workflow:
             raise HTTPException(status_code=404, detail="Workflow introuvable")
-        
+
         update_data = {}
         if data.nom is not None:
             update_data["nom"] = data.nom
@@ -77,7 +95,7 @@ class WorkflowService:
             update_data["actif"] = data.actif
 
         workflow = await self.workflow_repo.update(workflow, update_data)
-        return WorkflowResponse.from_orm(workflow)
+        return WorkflowResponse.model_validate(workflow)
 
     async def delete_workflow(self, tracking_id: UUID):
         workflow = await self.workflow_repo.get_by_tracking_id(tracking_id)
@@ -95,13 +113,18 @@ class WorkflowService:
         donnee: dict,
     ):
         """Déclenche tous les workflows actifs qui écoutent cet événement"""
-        workflows = await self.workflow_repo.get_active_by_project(project_id)
-        
+        result = await self.db.execute(
+            select(Workflow)
+            .options(selectinload(Workflow.etapes))
+            .where(Workflow.project_id == project_id, Workflow.actif == True)
+        )
+        workflows = result.scalars().all()
+
         for workflow in workflows:
             declencheur = self._get_declencheur(workflow)
-            
-            if (declencheur and 
-                declencheur.get("evenement") == evenement and 
+
+            if (declencheur and
+                declencheur.get("evenement") == evenement and
                 declencheur.get("table") == table):
                 await self._execute_workflow(workflow, donnee)
 
@@ -228,12 +251,17 @@ class WorkflowService:
     async def get_executions(self, workflow_id: UUID) -> list[ExecutionResponse]:
         """Récupère l'historique d'exécution d'un workflow"""
         executions = await self.execution_repo.get_by_workflow_id(workflow_id)
-        return [ExecutionResponse.from_orm(e) for e in executions]
+        return [ExecutionResponse.model_validate(e) for e in executions]
 
     # ───────────────────── GRAPH (React Flow) ─────────────────────
 
     async def get_graph(self, workflow_id: UUID) -> WorkflowGraphResponse:
-        workflow = await self.workflow_repo.get_by_tracking_id(workflow_id)
+        result = await self.db.execute(
+            select(Workflow)
+            .options(selectinload(Workflow.etapes))
+            .where(Workflow.tracking_id == workflow_id)
+        )
+        workflow = result.scalar_one_or_none()
         if not workflow:
             raise HTTPException(status_code=404, detail="Workflow introuvable")
 
@@ -288,7 +316,12 @@ class WorkflowService:
         )
 
     async def update_graph(self, workflow_id: UUID, data: WorkflowGraphUpdate) -> WorkflowGraphResponse:
-        workflow = await self.workflow_repo.get_by_tracking_id(workflow_id)
+        result = await self.db.execute(
+            select(Workflow)
+            .options(selectinload(Workflow.etapes))
+            .where(Workflow.tracking_id == workflow_id)
+        )
+        workflow = result.scalar_one_or_none()
         if not workflow:
             raise HTTPException(status_code=404, detail="Workflow introuvable")
 

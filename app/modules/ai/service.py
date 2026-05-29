@@ -55,25 +55,104 @@ class AIService:
         import re
         import json
 
-        raw_content = re.sub(r'```json\s*', '', raw_content)
-        raw_content = re.sub(r'```', '', raw_content)
         raw_content = raw_content.strip()
-        raw_content = re.sub(r',\s*\}', '}', raw_content)
-        raw_content = re.sub(r',\s*\]', ']', raw_content)
+
+        # Étape 1: Enlever les blocs markdown ```json...```
+        if "```json" in raw_content:
+            raw_content = raw_content.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw_content:
+            parts = raw_content.split("```")
+            if len(parts) >= 2:
+                raw_content = parts[1].strip()
+
+        # Étape 2: Essayer de parser directement
+        try:
+            return json.loads(raw_content)
+        except json.JSONDecodeError:
+            pass
+
+        # Étape 3: Extraire le JSON en trouvant { et }
+        # Cherche la première { et la dernière }
+        start_idx = raw_content.find('{')
+        end_idx = raw_content.rfind('}')
+
+        if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+            json_string = raw_content[start_idx:end_idx + 1]
+            try:
+                return json.loads(json_string)
+            except json.JSONDecodeError:
+                pass
+
+        # Étape 4: Chercher [ et ] pour les arrays
+        start_idx = raw_content.find('[')
+        end_idx = raw_content.rfind(']')
+
+        if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
+            json_string = raw_content[start_idx:end_idx + 1]
+            try:
+                return json.loads(json_string)
+            except json.JSONDecodeError:
+                pass
+
+        # Étape 5: Nettoyer les virgules mal placées
+        raw_content = re.sub(r',\s*}', '}', raw_content)
+        raw_content = re.sub(r',\s*]', ']', raw_content)
 
         try:
             return json.loads(raw_content)
         except json.JSONDecodeError as e:
-            print(f"Initial JSON parsing failed: {e}")
-            json_match = re.search(r'(\{.*\}|\[.*\])', raw_content, re.DOTALL)
-            if json_match:
-                json_string = json_match.group(0)
-                try:
-                    return json.loads(json_string)
-                except json.JSONDecodeError:
-                    raise ValueError("Failed to parse JSON even after extraction and cleaning.")
-            else:
-                raise ValueError("No valid JSON object found in the AI response.")
+            print(f"❌ JSON parsing failed after all attempts: {e}")
+            print(f"Raw content: {raw_content[:200]}...")
+            raise ValueError(f"Failed to parse JSON: {str(e)}")
+
+    @staticmethod
+    def _requested_devices_from_description(description: str) -> list[str]:
+        """Extrait les types d'appareils demandés dans la description"""
+        text = description.lower()
+        devices = []
+        if any(token in text for token in ["mobile", "phone", "smartphone", "téléphone"]):
+            devices.append("mobile")
+        if any(token in text for token in ["tablet", "tablette", "ipad"]):
+            devices.append("tablet")
+        if any(token in text for token in ["desktop", "web", "ordinateur", "bureau", "laptop", "pc"]):
+            devices.append("desktop")
+        return devices or ["mobile"]
+
+    @staticmethod
+    def _ensure_requested_device_pages(interface_json: dict, requested_devices: list[str]) -> dict:
+        """Duplique les pages pour chaque appareil demandé"""
+        pages = interface_json.get("pages", [])
+        if not pages:
+            return interface_json
+
+        # Grouper les pages existantes par device
+        by_device = {}
+        for page in pages:
+            device = str(page.get("device", "mobile")).lower()
+            by_device.setdefault(device, []).append(page)
+
+        # Commencer avec les pages existantes
+        normalized_pages = list(pages)
+
+        # Ajouter les pages manquantes pour les devices demandés
+        for device in requested_devices:
+            if device in by_device:
+                continue
+            source_pages = by_device.get("mobile") or normalized_pages
+            cloned_pages = []
+            for page in source_pages:
+                clone = {
+                    **page,
+                    "device": device,
+                    "is_home": bool(page.get("is_home", False)),
+                    "components": list(page.get("components", [])),
+                }
+                cloned_pages.append(clone)
+            normalized_pages.extend(cloned_pages)
+            by_device[device] = cloned_pages
+
+        interface_json["pages"] = normalized_pages
+        return interface_json
 
     async def chat(self, project_id: UUID, data: MessageCreate, current_user: User) -> MessageResponse:
         start_time = time.time()
@@ -123,12 +202,7 @@ class AIService:
                         print(f"❌ [AI TOOL ERROR] Tool '{function_name}' failed: {str(e)}")
                         tool_results.append(f"⚠️ J'ai rencontré une erreur interne en essayant de '{function_name}'.")
                 if tool_results:
-                    ai_content = (ai_content or "") + "
-
----
-
-" + "
-".join(tool_results)
+                    ai_content = (ai_content or "") + "\n\n---\n\n" + "\n".join(tool_results)
             if not ai_content:
                 ai_content = "Désolé, je n'ai pas pu générer de réponse."
         except Exception as e:
@@ -226,9 +300,7 @@ class AIService:
                 context_tables = schema_resp.tables_created
         prompt_description = data.description
         if context_tables:
-            prompt_description += f"
-
-IMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. For forms or lists, add a 'connecte_a' property pointing to the table name."
+            prompt_description += f"\n\nIMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. For forms or lists, add a 'connecte_a' property pointing to the table name."
         try:
             response = await self.ai_client.chat.completions.create(model=self.model, messages=[{"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION}, {"role": "user", "content": prompt_description}], temperature=0.2, max_tokens=8192)
             raw_content = response.choices[0].message.content
@@ -285,6 +357,56 @@ IMPORTANT: Utilize these existing database tables for data bindings: {', '.join(
         workflows_count = await self.generate_workflows(project_id, data.description, current_user)
         return AppGenerationResponse(success=True, message=f"Génération terminée. {len(schema_resp.tables_created)} tables, {len(interface_resp.pages_created)} pages, {workflows_count} workflows.", db_schema=schema_resp, interface=interface_resp, workflows_created=workflows_count)
 
+    async def generate_workflows(
+        self,
+        project_id: UUID,
+        description: str,
+        current_user: User,
+    ) -> int:
+        """Génère les workflows depuis la description."""
+        from app.modules.workflow_engine.models import Workflow, EtapeWorkflow
+
+        try:
+            response = await self.ai_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_WORKFLOW_GENERATION},
+                    {"role": "user", "content": description}
+                ],
+                temperature=0.1,
+                max_tokens=2000
+            )
+            raw_content = response.choices[0].message.content
+            workflows_json = self._clean_json_response(raw_content)
+        except Exception as e:
+            print(f"⚠️ [AI WORKFLOW] Error generating workflows: {e}")
+            return 0
+
+        count = 0
+        for wf_data in workflows_json.get("workflows", []):
+            workflow = Workflow(
+                project_id=project_id,
+                nom=wf_data.get("nom", "Workflow"),
+                description=wf_data.get("description"),
+                actif=True,
+            )
+            self.db.add(workflow)
+            await self.db.flush()
+            await self.db.refresh(workflow)
+
+            for etape_data in wf_data.get("etapes", []):
+                etape = EtapeWorkflow(
+                    workflow_id=workflow.tracking_id,
+                    type=etape_data.get("type", "declencheur"),
+                    ordre=etape_data.get("ordre", 0),
+                    config=etape_data.get("config", {}),
+                )
+                self.db.add(etape)
+            count += 1
+
+        await self.db.commit()
+        return count
+
     async def get_history(self, project_id: UUID) -> ConversationResponse:
         conversation = await self.conv_repo.get_or_create(project_id)
         return ConversationResponse.model_validate(conversation)
@@ -335,6 +457,4 @@ IMPORTANT: Utilize these existing database tables for data bindings: {', '.join(
             parts.append("INTERFACE: " + ("; ".join(page_summaries) if page_summaries else "none"))
         if not parts:
             return ""
-        return "PROJECT CONTEXT:
-" + "
-".join(parts)
+        return "PROJECT CONTEXT:\n" + "\n".join(parts)
