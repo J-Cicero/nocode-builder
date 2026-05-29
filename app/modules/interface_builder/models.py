@@ -78,7 +78,7 @@ class Composant(Base):
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
     page_id = Column(UUID(as_uuid=True), ForeignKey("pages.tracking_id"), nullable=False)
-    parent_id = Column(UUID(as_uuid=True), ForeignKey("composants.tracking_id"), nullable=True)
+    parent_id = Column(UUID(as_uuid=True), ForeignKey("composants.tracking_id", use_alter=True), nullable=True)
     
     type = Column(Enum(TypeComposant), nullable=False)
     position_x = Column(Integer, default=0)
