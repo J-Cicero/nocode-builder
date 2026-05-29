@@ -23,6 +23,55 @@ class TypePage(str, Enum):
     DESKTOP = "desktop"
 
 
+class SectionType(str, Enum):
+    NAVBAR = "navbar"
+    HERO = "hero"
+    STATS_ROW = "stats-row"
+    DATA_TABLE = "data-table"
+    FORM = "form"
+    CARD_GRID = "card-grid"
+    TEXT_SECTION = "text-section"
+    MOBILE_HEADER = "mobile-header"
+    MOBILE_CARD_LIST = "mobile-card-list"
+    BOTTOM_NAV = "bottom-nav"
+
+
+# ═══════════════════════════════════════════════════════════════
+#  SECTION
+# ═══════════════════════════════════════════════════════════════
+
+class SectionCreate(BaseModel):
+    type: SectionType
+    ordre: int = 0
+    title: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+    connecte_a: Optional[str] = None
+    styles: Optional[dict[str, Any]] = None
+
+
+class SectionUpdate(BaseModel):
+    type: Optional[SectionType] = None
+    ordre: Optional[int] = None
+    title: Optional[str] = None
+    config: Optional[dict[str, Any]] = None
+    connecte_a: Optional[str] = None
+    styles: Optional[dict[str, Any]] = None
+
+
+class SectionResponse(BaseModel):
+    tracking_id: UUID
+    type: SectionType
+    ordre: int
+    title: Optional[str]
+    config: Optional[dict[str, Any]]
+    connecte_a: Optional[str]
+    styles: Optional[dict[str, Any]]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # ═══════════════════════════════════════════════════════════════
 #  COMPOSANT
 # ═══════════════════════════════════════════════════════════════
@@ -101,6 +150,7 @@ class PageResponse(BaseModel):
     est_accueil: bool
     ordre: int
     composants: List[ComposantResponse] = []
+    sections: List[SectionResponse] = []
     created_at: datetime
 
     class Config:

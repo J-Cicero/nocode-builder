@@ -6,6 +6,7 @@ from app.modules.interface_builder.models import (
     Interface,
     Page,
     Composant,
+    Section,
 )
 
 
@@ -166,3 +167,52 @@ class ComposantRepository:
                 composant.position_x = item.get("position_x", 0)
                 composant.position_y = item.get("position_y", 0)
         await self.db.flush()
+
+
+class SectionRepository:
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def get_by_page_id(self, page_id: UUID) -> list[Section]:
+        result = await self.db.execute(
+            select(Section)
+            .where(Section.page_id == page_id)
+            .order_by(Section.ordre)
+        )
+        return list(result.scalars().all())
+
+    async def get_by_tracking_id(self, tracking_id: UUID) -> Section | None:
+        result = await self.db.execute(
+            select(Section).where(Section.tracking_id == tracking_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def create(self, page_id: UUID, type: str, ordre: int = 0,
+                     title: str | None = None, config: dict | None = None,
+                     connecte_a: str | None = None, styles: dict | None = None) -> Section:
+        section = Section(
+            page_id=page_id,
+            type=type,
+            ordre=ordre,
+            title=title,
+            config=config or {},
+            connecte_a=connecte_a,
+            styles=styles,
+        )
+        self.db.add(section)
+        await self.db.flush()
+        await self.db.refresh(section)
+        return section
+
+    async def update(self, section: Section, data: dict) -> Section:
+        for field, value in data.items():
+            setattr(section, field, value)
+        await self.db.flush()
+        await self.db.refresh(section)
+        return section
+
+    async def delete(self, section: Section) -> None:
+        await self.db.delete(section)
+        await self.db.flush()
+

@@ -27,6 +27,19 @@ class TypePage(str, enum.Enum):
     DESKTOP = "desktop"
 
 
+class SectionType(str, enum.Enum):
+    NAVBAR = "navbar"
+    HERO = "hero"
+    STATS_ROW = "stats-row"
+    DATA_TABLE = "data-table"
+    FORM = "form"
+    CARD_GRID = "card-grid"
+    TEXT_SECTION = "text-section"
+    MOBILE_HEADER = "mobile-header"
+    MOBILE_CARD_LIST = "mobile-card-list"
+    BOTTOM_NAV = "bottom-nav"
+
+
 class Interface(Base):
     __tablename__ = "interfaces"
 
@@ -51,7 +64,7 @@ class Page(Base):
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
     interface_id = Column(UUID(as_uuid=True), ForeignKey("interfaces.tracking_id"), nullable=False)
-    
+
     nom = Column(String(200), nullable=False)
     chemin = Column(String(200), nullable=False)
     type_page = Column(
@@ -67,9 +80,32 @@ class Page(Base):
     # Relations
     composants = relationship("Composant", backref="page", cascade="all, delete-orphan",
                              foreign_keys="Composant.page_id")
+    sections = relationship("Section", backref="page", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Page {self.nom}>"
+
+
+class Section(Base):
+    __tablename__ = "sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
+    page_id = Column(UUID(as_uuid=True), ForeignKey("pages.tracking_id"), nullable=False)
+
+    type = Column(
+        Enum(SectionType, name="sectiontype", values_callable=lambda x: [e.value for e in x]),
+        nullable=False
+    )
+    ordre = Column(Integer, default=0)
+    title = Column(String(200), nullable=True)
+    config = Column(JSON, nullable=True, default={})
+    connecte_a = Column(String(200), nullable=True)
+    styles = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def __repr__(self):
+        return f"<Section {self.type}>"
 
 
 class Composant(Base):
