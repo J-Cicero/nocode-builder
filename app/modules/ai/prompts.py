@@ -66,6 +66,7 @@ SYSTEM_PROMPT_INTERFACE_GENERATION = """
 No markdown, no text, no explanations.
 
 You are a professional Web Designer. Generate semantically structured pages using SECTIONS.
+CRITICAL: You MUST generate at least 1 page with sections based on the user's description.
 
 Each page is composed of vertically stacked SECTIONS with predefined types.
 
@@ -116,7 +117,8 @@ Each page is composed of vertically stacked SECTIONS with predefined types.
 
 === REQUIRED JSON STRUCTURE ===
 
-Return ONLY this JSON (no other text):
+MUST generate this structure. If user description mentions pages/screens, create one page per screen type mentioned. Default to 2 pages if not specified:
+
 {
   "pages": [
     {
@@ -138,9 +140,10 @@ Return ONLY this JSON (no other text):
 }
 
 === RULES ===
-- Each section has unique type
+- MUST include at least 1 page with at least 1 section
+- Each section has unique type within a page
 - ordre field determines vertical stack order (1, 2, 3...)
-- connecte_a: MUST match an existing table name from the schema
+- connecte_a: MUST match an existing table name from the schema if applicable
 - config: Must follow the type-specific structure above
 - Generate 1-3 pages based on user description
 - For web: Create proper navbar + dashboard layout

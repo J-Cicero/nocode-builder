@@ -76,8 +76,9 @@ class ProjectService:
             await repo_db.execute(text("DELETE FROM tables_schema WHERE schema_id IN (SELECT tracking_id FROM schemas WHERE project_id = :pid)").bindparams(pid=pid))
             await repo_db.execute(text("DELETE FROM schemas WHERE project_id = :pid").bindparams(pid=pid))
             
-            # 2. Interface et Composants
+            # 2. Interface, Pages, Sections et Composants
             await repo_db.execute(text("DELETE FROM composants WHERE page_id IN (SELECT tracking_id FROM pages WHERE interface_id IN (SELECT tracking_id FROM interfaces WHERE project_id = :pid))").bindparams(pid=pid))
+            await repo_db.execute(text("DELETE FROM sections WHERE page_id IN (SELECT tracking_id FROM pages WHERE interface_id IN (SELECT tracking_id FROM interfaces WHERE project_id = :pid))").bindparams(pid=pid))
             await repo_db.execute(text("DELETE FROM pages WHERE interface_id IN (SELECT tracking_id FROM interfaces WHERE project_id = :pid)").bindparams(pid=pid))
             await repo_db.execute(text("DELETE FROM interfaces WHERE project_id = :pid").bindparams(pid=pid))
             

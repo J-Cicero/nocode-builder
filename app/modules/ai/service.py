@@ -31,8 +31,8 @@ from app.modules.projects.repository import ProjectRepository
 from app.modules.schema.models import Schema, TableSchema, Field, Relation
 from app.modules.schema.models import FieldType, RelationType
 from app.modules.auth.models import User
-from app.modules.interface_builder.models import Interface, Page, Composant, TypePage, TypeComposant
-from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository
+from app.modules.interface_builder.models import Interface, Page, Composant, TypePage, TypeComposant, Section
+from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository, SectionRepository
 from app.modules.workflow_engine.repository import WorkflowRepository
 
 
@@ -44,6 +44,7 @@ class AIService:
         self.interface_repo = InterfaceRepository(db)
         self.page_repo = PageRepository(db)
         self.composant_repo = ComposantRepository(db)
+        self.section_repo = SectionRepository(db)
         self.ai_client = AsyncOpenAI(
             api_key=settings.AI_API_KEY,
             base_url=settings.AI_BASE_URL
@@ -298,22 +299,44 @@ class AIService:
                 print("⚠️ [ARCH FIX] No schema found. Generating schema before interface.")
                 schema_resp = await self.generate_schema(project_id, SchemaGenerationRequest(description=data.description), current_user)
                 context_tables = schema_resp.tables_created
+
         prompt_description = data.description
         if context_tables:
             prompt_description += f"\n\nIMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. For forms or lists, add a 'connecte_a' property pointing to the table name."
+
+        # 1. Appeler Groq avec SYSTEM_PROMPT_INTERFACE_GENERATION
         try:
-            response = await self.ai_client.chat.completions.create(model=self.model, messages=[{"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION}, {"role": "user", "content": prompt_description}], temperature=0.2, max_tokens=8192)
+            print(f"📤 [INTERFACE] Sending prompt with {len(context_tables or [])} tables: {context_tables}")
+            response = await self.ai_client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION},
+                    {"role": "user", "content": prompt_description}
+                ],
+                temperature=0.2,
+                max_tokens=8192
+            )
             raw_content = response.choices[0].message.content
+            print(f"📥 [INTERFACE] Raw AI response (first 1000 chars):\n{raw_content[:1000]}")
         except Exception as e:
+            print(f"❌ [INTERFACE] API error: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {str(e)}")
+
+        # 2. Parser le JSON retourné
         try:
             interface_json = self._clean_json_response(raw_content)
+            print(f"✅ [INTERFACE] Parsed JSON: {interface_json}")
+            print(f"✅ [INTERFACE] Pages count: {len(interface_json.get('pages', []))}")
+            for i, page in enumerate(interface_json.get("pages", [])):
+                print(f"  Page {i}: {page.get('name')} - Sections: {len(page.get('sections', []))}")
         except Exception as e:
             print(f"❌ AI JSON Parsing Error: {e}")
             print(f"Raw content was: {raw_content[:500]}...")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI returned invalid JSON: {str(e)}")
+
         requested_devices = self._requested_devices_from_description(data.description)
         interface_json = self._ensure_requested_device_pages(interface_json, requested_devices)
+
         interface = await self.interface_repo.get_by_project_id(project_id)
         if not interface:
             try:
@@ -322,34 +345,69 @@ class AIService:
                 await self.db.rollback()
                 interface = await self.interface_repo.get_by_project_id(project_id)
                 if not interface: raise
+
         existing_pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
         for page in existing_pages:
             await self.page_repo.delete(page)
         await self.db.flush()
-        type_mapping = {"container": TypeComposant.CONTENEUR, "columns": TypeComposant.CONTENEUR, "divider": TypeComposant.CONTENEUR, "spacer": TypeComposant.CONTENEUR, "title": TypeComposant.TEXTE, "text": TypeComposant.TEXTE, "badge": TypeComposant.TEXTE, "button": TypeComposant.BOUTON, "input": TypeComposant.CHAMP_INPUT, "textarea": TypeComposant.CHAMP_INPUT, "dropdown": TypeComposant.CHAMP_INPUT, "checkbox": TypeComposant.CHAMP_INPUT, "image": TypeComposant.IMAGE, "dataList": TypeComposant.LISTE, "card": TypeComposant.CARTE}
+
         page_type_mapping = {"mobile": TypePage.MOBILE, "tablet": TypePage.TABLET, "desktop": TypePage.DESKTOP}
         pages_created = []
-        components_created = 0
+        sections_created = 0
+
+        # 3. Pour chaque page dans pages[]
         for page_index, page_data in enumerate(interface_json.get("pages", [])):
             page_name = page_data.get("name") or f"Page {page_index + 1}"
             page_path = page_data.get("path") or f"/page-{page_index + 1}"
             page_device = str(page_data.get("device", "mobile")).lower()
-            page = Page(interface_id=interface.tracking_id, nom=page_name, chemin=page_path, type_page=page_type_mapping.get(page_device, TypePage.MOBILE), est_accueil=bool(page_data.get("is_home", page_index == 0)), ordre=page_index)
+
+            page = Page(
+                interface_id=interface.tracking_id,
+                nom=page_name,
+                chemin=page_path,
+                type_page=page_type_mapping.get(page_device, TypePage.MOBILE),
+                est_accueil=bool(page_data.get("is_home", page_index == 0)),
+                ordre=page_index
+            )
             self.db.add(page)
             await self.db.flush()
             await self.db.refresh(page)
             pages_created.append(page_name)
-            for component_index, component_data in enumerate(page_data.get("components", [])):
-                ui_type = component_data.get("ui_type", "text")
-                connecte_a_name = component_data.get("connecte_a") or component_data.get("props", {}).get("connecte_a")
-                composant = Composant(page_id=page.tracking_id, type=type_mapping.get(ui_type, TypeComposant.TEXTE), parent_id=None, position_x=0, position_y=component_index, largeur=str(component_data.get("width", "100%")), hauteur=str(component_data.get("height", "auto")), styles=component_data.get("styles") or {}, config={"uiType": ui_type, "props": component_data.get("props") or {}}, connecte_a=connecte_a_name, ordre=component_index)
-                self.db.add(composant)
-                components_created += 1
+
+            # 4. Pour chaque section dans page["sections"]
+            for section_index, section_data in enumerate(page_data.get("sections", [])):
+                section_type = section_data.get("type", "text-section")
+                section_ordre = section_data.get("ordre", section_index)
+                section_config = section_data.get("config", {})
+                section_connecte_a = section_config.get("table")
+                section_title = section_config.get("title")
+
+                section = Section(
+                    page_id=page.tracking_id,
+                    type=section_type,
+                    ordre=section_ordre,
+                    config=section_config,
+                    connecte_a=section_connecte_a,
+                    title=section_title
+                )
+                self.db.add(section)
+                sections_created += 1
+
+        # 5. Retourner le nombre de pages et sections créées
+        await self.db.flush()
+
         conversation = await self.conv_repo.get_or_create(project_id)
-        summary = f"I created {len(pages_created)} pages and {components_created} components for your interface. You can review them in the Interface tab."
+        summary = f"I created {len(pages_created)} pages and {sections_created} sections for your interface. You can review them in the Interface tab."
         await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
         await self.db.commit()
-        return InterfaceGenerationResponse(success=True, message=f"Successfully created {len(pages_created)} pages and {components_created} components", pages_created=pages_created, components_created=components_created, raw_interface=interface_json)
+
+        return InterfaceGenerationResponse(
+            success=True,
+            message=f"Successfully created {len(pages_created)} pages and {sections_created} sections",
+            pages_created=pages_created,
+            components_created=sections_created,
+            raw_interface=interface_json
+        )
 
     async def generate_app(self, project_id: UUID, data: AppGenerationRequest, current_user: User) -> AppGenerationResponse:
         schema_resp = await self.generate_schema(project_id, SchemaGenerationRequest(description=data.description), current_user)

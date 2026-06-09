@@ -7,11 +7,13 @@ from app.modules.interface_builder.repository import (
     InterfaceRepository,
     PageRepository,
     ComposantRepository,
+    SectionRepository,
 )
 from app.modules.interface_builder.models import (
     Interface,
     Page,
     Composant,
+    Section,
 )
 from app.modules.interface_builder.schema import (
     PageCreate,
@@ -30,13 +32,32 @@ class InterfaceService:
         self.interface_repo = InterfaceRepository(db)
         self.page_repo = PageRepository(db)
         self.composant_repo = ComposantRepository(db)
+        self.section_repo = SectionRepository(db)
         self.db = db
 
     async def _build_page_response(self, page: Page, include_components: bool = False) -> PageResponse:
         composants_response = []
+        sections_response = []
+
         if include_components:
             composants = await self.composant_repo.get_by_page_id(page.tracking_id)
             composants_response = [self._build_composant_response(c) for c in composants]
+
+            sections = await self.section_repo.get_by_page_id(page.tracking_id)
+            from app.modules.interface_builder.schema import SectionResponse
+            sections_response = [
+                SectionResponse(
+                    tracking_id=s.tracking_id,
+                    type=s.type,
+                    ordre=s.ordre,
+                    title=s.title,
+                    config=s.config,
+                    connecte_a=s.connecte_a,
+                    styles=s.styles,
+                    created_at=s.created_at,
+                )
+                for s in sections
+            ]
 
         return PageResponse(
             tracking_id=page.tracking_id,
@@ -46,6 +67,7 @@ class InterfaceService:
             est_accueil=page.est_accueil,
             ordre=page.ordre,
             composants=composants_response,
+            sections=sections_response,
             created_at=page.created_at,
         )
 
@@ -84,6 +106,23 @@ class InterfaceService:
         hydrated_pages = []
         for page in pages:
             composants = await self.composant_repo.get_by_page_id(page.tracking_id)
+            sections = await self.section_repo.get_by_page_id(page.tracking_id)
+
+            from app.modules.interface_builder.schema import SectionResponse
+            sections_response = [
+                SectionResponse(
+                    tracking_id=s.tracking_id,
+                    type=s.type,
+                    ordre=s.ordre,
+                    title=s.title,
+                    config=s.config,
+                    connecte_a=s.connecte_a,
+                    styles=s.styles,
+                    created_at=s.created_at,
+                )
+                for s in sections
+            ]
+
             page_response = PageResponse(
                 tracking_id=page.tracking_id,
                 nom=page.nom,
@@ -92,6 +131,7 @@ class InterfaceService:
                 est_accueil=page.est_accueil,
                 ordre=page.ordre,
                 composants=[self._build_composant_response(c) for c in composants],
+                sections=sections_response,
                 created_at=page.created_at,
             )
             hydrated_pages.append(page_response)
@@ -274,3 +314,28 @@ class InterfaceService:
 
         await self.composant_repo.reorder(page_id, ordre)
         return {"message": "Composants réordonnés"}
+
+    # ─── SECTIONS ──────────────────────────────────────
+
+    async def get_page_sections(self, page_id: UUID):
+        page = await self.page_repo.get_by_tracking_id(page_id)
+        if not page:
+            raise HTTPException(status_code=404, detail="Page introuvable")
+
+        sections = await self.section_repo.get_by_page_id(page_id)
+        return {
+            "page_id": page_id,
+            "sections": [
+                {
+                    "tracking_id": s.tracking_id,
+                    "type": s.type,
+                    "ordre": s.ordre,
+                    "title": s.title,
+                    "config": s.config or {},
+                    "connecte_a": s.connecte_a,
+                    "created_at": s.created_at,
+                }
+                for s in sections
+            ]
+        }
+

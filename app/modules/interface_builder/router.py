@@ -186,3 +186,17 @@ async def reorder_composants(
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.reorder_composants(page_id, ordre)
+
+
+# ─── SECTIONS ──────────────────────────────────────
+
+@router.get(
+    "/pages/{page_id}/sections",
+    summary="Obtenir les sections d'une page",
+)
+async def get_page_sections(
+    page_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: InterfaceService = Depends(get_interface_service),
+):
+    return await service.get_page_sections(page_id)
