@@ -2,29 +2,18 @@ from logging.config import fileConfig
 from sqlalchemy import create_engine, pool
 from alembic import context
 
-# Import de ta config et de tes modèles
 from app.core.config import settings
 from app.core.database import Base
-from app.modules.auth.models import User
-from app.modules.projects.models import Project
-from app.modules.schema.models import Schema, TableSchema, Field, Relation
-from app.modules.data_engine.models import DonneeProjet, HistoriqueDonnee
-from app.modules.interface_builder.models import Interface, Page, Composant
-from app.modules.workflow_engine.models import Workflow, EtapeWorkflow, ExecutionWorkflow
-from app.modules.generator.models import Generation, Deployment
-from app.modules.ai.models import Conversation, Message
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Alembic regarde cette variable pour savoir quelles tables créer
 target_metadata = Base.metadata
 
-
 def run_migrations_offline() -> None:
-    url = settings.DATABASE_URL.replace("+asyncpg", "")
+    url = settings.DATABASE_URL_SYNC
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -34,11 +23,9 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-
 def run_migrations_online() -> None:
-    # On remplace +asyncpg par rien car alembic a besoin du driver sync
     connectable = create_engine(
-        settings.DATABASE_URL.replace("+asyncpg", ""),
+        settings.DATABASE_URL_SYNC,
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
@@ -48,7 +35,6 @@ def run_migrations_online() -> None:
         )
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()
