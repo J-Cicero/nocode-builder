@@ -5,6 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.health import router as health_router
+from app.api.v1.endpoints.workspaces import router as workspaces_router
+from app.api.v1.endpoints.projects import router as projects_router
+from app.api.v1.endpoints.blueprints import router as blueprints_router
 from app.core.config import settings
 from app.core.database import engine
 from app.core.logging import setup_logging
@@ -42,6 +45,9 @@ app.add_middleware(
 
 # ─── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(health_router, prefix="/api/v1")
+app.include_router(workspaces_router, prefix="/api/v1/workspaces", tags=["Workspaces"])
+app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
+app.include_router(blueprints_router, prefix="/api/v1/blueprints", tags=["Blueprints"])
 
 
 # ─── Root ───────────────────────────────────────────────────────────────────────
