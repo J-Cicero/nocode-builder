@@ -14,7 +14,7 @@ class ProjectStatus(str, enum.Enum):
 
 
 class Project(Base):
-    __tablename__ = "projects"
+    __tablename__ = "legacy_projects"
 
     id          = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
@@ -33,7 +33,7 @@ class Project(Base):
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
     updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
 
-    owner       = relationship("User", backref="projects")
+    owner       = relationship("app.modules.auth.models.User", backref="legacy_projects")
 
     def __repr__(self):
         return f"<Project {self.name} | {self.status}>"

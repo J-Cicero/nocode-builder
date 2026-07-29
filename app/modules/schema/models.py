@@ -29,13 +29,18 @@ class Schema(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.tracking_id"), nullable=False, unique=True)
+    project_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     tables = relationship("TableSchema", backref="schema", cascade="all, delete-orphan")
-    project = relationship("Project", backref="schema")
+    project = relationship(
+        "app.modules.projects.models.Project",
+        primaryjoin="Schema.project_id == app.modules.projects.models.Project.tracking_id",
+        foreign_keys=[project_id],
+        backref="schema"
+    )
 
     def __repr__(self):
         return f"<Schema for Project {self.project_id}>"

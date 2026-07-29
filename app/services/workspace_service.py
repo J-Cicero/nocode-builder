@@ -22,6 +22,13 @@ class WorkspaceService:
         return await workspace_repo.update(db, db_obj=db_obj, obj_in=workspace_in)
 
     @staticmethod
+    async def get_default_workspace(db: AsyncSession) -> Workspace:
+        workspaces = await workspace_repo.get_multi(db, skip=0, limit=1)
+        if workspaces:
+            return workspaces[0]
+        return await workspace_repo.create(db, obj_in=WorkspaceCreate(name="Default Workspace", slug="default-workspace"))
+
+    @staticmethod
     async def delete_workspace(db: AsyncSession, uuid: str) -> Workspace:
         return await workspace_repo.remove_by_uuid(db, uuid=uuid)
 

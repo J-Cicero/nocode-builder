@@ -16,7 +16,7 @@ class Blueprint(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    project = relationship("Project", back_populates="blueprints", lazy="joined")
+    project = relationship("app.models.project.Project", foreign_keys=[project_id], back_populates="blueprints", lazy="joined")
 
     @property
     def project_uuid(self) -> str:

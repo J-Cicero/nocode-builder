@@ -12,7 +12,7 @@ class DonneeProjet(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.tracking_id"), nullable=False, index=True)
+    project_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     table_name = Column(String(100), nullable=False)
     content = Column(JSON, nullable=False)
     

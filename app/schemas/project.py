@@ -11,7 +11,7 @@ class ProjectBase(BaseModel):
     status: ProjectStatus = ProjectStatus.DRAFT
 
 class ProjectCreate(ProjectBase):
-    workspace_uuid: str
+    workspace_uuid: Optional[str] = None
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None

@@ -24,8 +24,8 @@ class Project(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    workspace = relationship("Workspace", back_populates="projects", lazy="joined")
-    blueprints = relationship("Blueprint", back_populates="project", cascade="all, delete-orphan")
+    workspace = relationship("Workspace", foreign_keys=[workspace_id], back_populates="projects", lazy="joined")
+    blueprints = relationship("Blueprint", foreign_keys="[Blueprint.project_id]", back_populates="project", cascade="all, delete-orphan")
 
     @property
     def workspace_uuid(self) -> str:

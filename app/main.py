@@ -49,12 +49,26 @@ app.include_router(workspaces_router, prefix="/api/v1/workspaces", tags=["Worksp
 app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
 app.include_router(blueprints_router, prefix="/api/v1/blueprints", tags=["Blueprints"])
 
-# ─── Legacy Modules (Auth & Features) ──────────────────────────────────────────
-try:
-    from app.modules.auth.router import router as auth_router
-    app.include_router(auth_router, prefix="/api/auth", tags=["Auth (Legacy)"])
-except Exception as e:
-    logger.warning(f"Could not load legacy auth router: {e}")
+# ─── Business Modules (Auth, Schema, Data, AI, Workflows, Generator, Interface) ──
+modules_to_load = [
+    ("app.modules.auth.router", "auth_router", "/api", ["Auth"]),
+    ("app.modules.ai.router", "ai_router", "/api", ["AI Assistant"]),
+    ("app.modules.schema.router", "schema_router", "/api", ["Constructeur de Schéma"]),
+    ("app.modules.data_engine.router", "data_engine_router", "/api", ["Moteur de Données"]),
+    ("app.modules.interface_builder.router", "interface_builder_router", "/api", ["Interface Builder"]),
+    ("app.modules.generator.router", "generator_router", "/api", ["Générateur"]),
+    ("app.modules.workflow_engine.router", "workflow_engine_router", "/api", ["Workflows"]),
+]
+
+for mod_path, router_name, prefix, tags in modules_to_load:
+    try:
+        import importlib
+        mod = importlib.import_module(mod_path)
+        router_obj = getattr(mod, "router")
+        app.include_router(router_obj, prefix=prefix)
+        logger.info(f"Loaded module router: {mod_path}")
+    except Exception as e:
+        logger.warning(f"Could not load module router {mod_path}: {e}")
 
 
 

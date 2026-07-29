@@ -26,7 +26,7 @@ class Workflow(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.tracking_id"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), nullable=False)
     
     nom = Column(String(200), nullable=False)
     description = Column(String(500), nullable=True)

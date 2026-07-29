@@ -11,12 +11,15 @@ router = APIRouter()
 
 @router.post("/", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(project_in: ProjectCreate, db: AsyncSession = Depends(get_db)):
-    workspace = await workspace_service.get_workspace_by_uuid(db, uuid=project_in.workspace_uuid)
-    if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+    if project_in.workspace_uuid:
+        workspace = await workspace_service.get_workspace_by_uuid(db, uuid=project_in.workspace_uuid)
+        if not workspace:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+    else:
+        workspace = await workspace_service.get_default_workspace(db)
     
     project_data = project_in.model_dump()
-    del project_data["workspace_uuid"]
+    project_data.pop("workspace_uuid", None)
     project_data["workspace_id"] = workspace.id
     
     return await project_service.create_project_from_dict(db, project_data)

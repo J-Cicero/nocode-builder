@@ -17,8 +17,7 @@ class Conversation(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     tracking_id = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, index=True)
-    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.tracking_id"), 
-                       nullable=False, unique=True)
+    project_id = Column(UUID(as_uuid=True), nullable=False, unique=True)
     
     title = Column(String(200), default="Project Assistant")
     
