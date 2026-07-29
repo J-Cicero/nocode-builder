@@ -1,8 +1,31 @@
-asyncpg
-fastapi
-passlib[bcrypt]
-pydantic-settings
-python-jose[cryptography]
-python-multipartopenai
-sqlalchemy
-uvicorn[standard]
+# ─── Web Framework ─────────────────────────────────────────────────────────────
+fastapi==0.139.0
+uvicorn[standard]==0.51.0
+
+# ─── Database ───────────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]==2.0.41
+asyncpg==0.31.0
+alembic==1.16.4
+psycopg2-binary==2.9.9
+
+# ─── Settings & Validation ──────────────────────────────────────────────────────
+pydantic==2.13.4
+pydantic-settings==2.14.2
+python-dotenv==1.2.2
+
+# ─── HTTP Client ────────────────────────────────────────────────────────────────
+httpx==0.28.1
+
+# ─── Security ───────────────────────────────────────────────────────────────────
+passlib[bcrypt]==1.7.4
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.20
+
+# ─── Quality Tools ──────────────────────────────────────────────────────────────
+ruff==0.15.20
+black==26.5.1
+isort==8.0.1
+
+# ─── Testing ────────────────────────────────────────────────────────────────────
+pytest==9.1.1
+pytest-asyncio==1.4.0

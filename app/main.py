@@ -1,50 +1,69 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from app.modules.auth.router import router as auth_router
-from app.modules.projects.router import router as projects_router
-from app.modules.schema.router import router as schema_router
-from app.modules.data_engine.router import router as data_router
-from app.modules.workflow_engine.router import router as workflow_router
-from app.modules.interface_builder.router import router as interface_router
-from app.modules.generator.router import router as generator_router
-from app.modules.generator.preview_renderer import get_public_deployments_dir
-from app.modules.ai.router import router as ai_router
 
+from app.api.v1.health import router as health_router
+from app.api.v1.endpoints.workspaces import router as workspaces_router
+from app.api.v1.endpoints.projects import router as projects_router
+from app.api.v1.endpoints.blueprints import router as blueprints_router
+from app.core.config import settings
+from app.core.database import engine
+from app.core.logging import setup_logging
+
+# ─── Logging Setup ──────────────────────────────────────────────────────────────
+setup_logging()
+logger = logging.getLogger(__name__)
+
+
+# ─── Lifespan ───────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("🚀 NoCode Builder API starting up...")
+    yield
+    logger.info("🛑 NoCode Builder API shutting down...")
+    await engine.dispose()
+
+
+# ─── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="NoCode Builder",
-    description="Plateforme no-code pour créer des apps sans coder.",
-    version="1.0.0",
-    redirect_slashes=True,
+    title=settings.PROJECT_NAME,
+    description="Plateforme NoCode capable de générer une application complète à partir d'un Blueprint.",
+    version=settings.API_VERSION,
+    lifespan=lifespan,
 )
 
+# ─── CORS ───────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:4000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "http://127.0.0.1:4000",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(auth_router, prefix="/api")
-app.include_router(projects_router, prefix="/api")
-app.include_router(schema_router, prefix="/api")
-app.include_router(data_router, prefix="/api")
-app.include_router(workflow_router, prefix="/api")
-app.include_router(interface_router, prefix="/api")
-app.include_router(generator_router, prefix="/api")
-app.include_router(ai_router, prefix="/api")
-app.mount("/public-deployments", StaticFiles(directory=str(get_public_deployments_dir()), html=True), name="public-deployments")
+# ─── Routers ────────────────────────────────────────────────────────────────────
+app.include_router(health_router, prefix="/api/v1")
+app.include_router(workspaces_router, prefix="/api/v1/workspaces", tags=["Workspaces"])
+app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
+app.include_router(blueprints_router, prefix="/api/v1/blueprints", tags=["Blueprints"])
 
-@app.get("/", tags=["Health"])
+# ─── Legacy Modules (Auth & Features) ──────────────────────────────────────────
+try:
+    from app.modules.auth.router import router as auth_router
+    app.include_router(auth_router, prefix="/api/auth", tags=["Auth (Legacy)"])
+except Exception as e:
+    logger.warning(f"Could not load legacy auth router: {e}")
+
+
+
+# ─── Root ───────────────────────────────────────────────────────────────────────
+@app.get("/", tags=["Root"])
 async def root():
-    return {"message": "NoCode Builder API "}
+    return {
+        "project": settings.PROJECT_NAME,
+        "version": settings.API_VERSION,
+        "docs": "/docs",
+        "health": "/api/v1/health",
+    }
