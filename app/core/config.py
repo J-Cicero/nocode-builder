@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # ─── AI Engine (Mistral AI / OpenAI Compatible) ──────────────────────────────
+    AI_PROVIDER: str = "mistral"
+    AI_API_KEY: str = "rJwmY9khXNNoRfNZ8UTiaV8ytPhwvcHg"
+    AI_BASE_URL: str = "https://api.mistral.ai/v1"
+    AI_MODEL: str = "mistral-small-latest"
+
     @property
     def DATABASE_URL(self) -> str:
         return (
