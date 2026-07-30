@@ -43,22 +43,18 @@ L'utilisateur décrit son application. Analyse la description et retourne UNIQUE
         }
       ]
     }
-  ],
-  "relations": [
-    {
-      "from_table": "source_table",
-      "to_table": "target_table",
-      "type": "one_to_many|many_to_one|many_to_many"
-    }
   ]
 }
 
-RÈGLES STRICTES :
-- Ne JAMAIS inclure id, created_at, updated_at, timestamps
-- Noms de tables en snake_case et PLURIEL (products, not product)
-- Retourne UNIQUEMENT le JSON, commençant par { et finissant par }
-- Si tu ajoutes du texte avant ou après, le système plantera
-- Vérifie que chaque virgule est correcte
+RÈGLES STRICTES SUR LES RELATIONS ET DONNÉES :
+- INTERDICTION ABSOLUE d'utiliser des relations complexes (OneToMany, ManyToMany) ou des tables de jonction.
+- TOUTES les liaisons entre tables doivent être modélisées UNIQUEMENT par de simples champs de référence directe dans la liste `fields` (ex: `category_id`, `user_uuid`, `product_id`) avec un type `text` ou `number`.
+- Ne JAMAIS inclure d'objets ou de clés "relations" complexes.
+- Ne JAMAIS inclure id, created_at, updated_at, timestamps génériques.
+- Noms de tables en snake_case et PLURIEL (products, not product).
+- Retourne UNIQUEMENT le JSON, commençant par { et finissant par }.
+- Si tu ajoutes du texte avant ou après, le système plantera.
+- Vérifie que chaque virgule est correcte.
 """
 
 SYSTEM_PROMPT_INTERFACE_GENERATION = """

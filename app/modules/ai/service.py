@@ -265,18 +265,34 @@ class AIService:
                 field = Field(table_id=table.tracking_id, name=field_name, display_name=field_name.replace("_", " ").title(), type=field_type_enum, required=field_data.get("required", False), unique=field_data.get("unique", False), config=field_config)
                 self.db.add(field)
             await self.db.flush()
+        # Filtrage de sécurité : ignorer toute relation complexe résiduelle (MANY_TO_MANY / ONE_TO_MANY)
+        # La base doit rester strictement simple et fondée sur des champs de référence directe (UUID/ID)
         relations_count = 0
-        for relation_data in schema_json.get("relations", []):
+        raw_relations = schema_json.get("relations", [])
+        for relation_data in raw_relations:
+            relation_type = str(relation_data.get("type", "")).lower().replace("-", "_")
+            if "many_to_many" in relation_type or "one_to_many" in relation_type:
+                print(f"⚠️ [AI SECURITY FILTER] Ignored complex relation '{relation_type}' between {relation_data.get('from_table')} and {relation_data.get('to_table')}")
+                continue
+            
             from_table = relation_data.get("from_table")
             to_table = relation_data.get("to_table")
-            relation_type = relation_data.get("type", "one_to_many")
             if from_table in table_mapping and to_table in table_mapping:
                 try:
-                    relation_type_enum = RelationType[relation_type.upper().replace("-", "_")]
+                    relation_type_enum = RelationType[relation_type.upper()]
                 except KeyError:
-                    relation_type_enum = RelationType.ONE_TO_MANY
+                    relation_type_enum = RelationType.ONE_TO_ONE
                 relation_name = relation_data.get("name") or f"{from_table}_{relation_type}_{to_table}"
-                relation = Relation(schema_id=schema.tracking_id, source_table_id=table_mapping[from_table], target_table_id=table_mapping[to_table], name=relation_name, type=relation_type_enum, description=relation_data.get("description"), source_key=relation_data.get("source_key", "id"), target_key=relation_data.get("target_key", "id"))
+                relation = Relation(
+                    schema_id=schema.tracking_id, 
+                    source_table_id=table_mapping[from_table], 
+                    target_table_id=table_mapping[to_table], 
+                    name=relation_name, 
+                    type=relation_type_enum, 
+                    description=relation_data.get("description"), 
+                    source_key=relation_data.get("source_key", "id"), 
+                    target_key=relation_data.get("target_key", "id")
+                )
                 self.db.add(relation)
                 relations_count += 1
             await self.db.flush()

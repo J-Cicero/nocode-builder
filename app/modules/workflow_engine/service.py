@@ -211,9 +211,15 @@ class WorkflowService:
                 config.get("destinataire", ""),
                 donnee,
             )
+            sujet = self._resolve_template(config.get("sujet", "Notification Workflow"), donnee)
+            message = self._resolve_template(config.get("message", ""), donnee)
+            print(f"📧 [WORKFLOW EMAIL LOG] De: System, À: {destinataire}, Sujet: {sujet}")
             return {
                 "action": "email_envoyé",
                 "destinataire": destinataire,
+                "sujet": sujet,
+                "message": message,
+                "statut": "envoyé"
             }
 
         elif type_action == "envoyer_sms":
@@ -221,9 +227,13 @@ class WorkflowService:
                 config.get("telephone", ""),
                 donnee,
             )
+            message = self._resolve_template(config.get("message", ""), donnee)
+            print(f"📱 [WORKFLOW SMS LOG] À: {telephone}, Message: {message}")
             return {
                 "action": "sms_envoyé",
                 "telephone": telephone,
+                "message": message,
+                "statut": "envoyé"
             }
 
         elif type_action == "modifier_champ":
@@ -233,10 +243,29 @@ class WorkflowService:
                 donnee,
             )
             donnee[champ] = valeur
+
+            # Persistance réelle de la modification en base de données SQL
+            donnee_id_str = donnee.get("id")
+            persisted = False
+            if donnee_id_str:
+                try:
+                    from app.modules.data_engine.repository import DonneeRepository
+                    donnee_repo = DonneeRepository(self.db)
+                    donnee_id = UUID(str(donnee_id_str))
+                    existing_donnee = await donnee_repo.get_by_tracking_id(donnee_id)
+                    if existing_donnee:
+                        new_content = dict(existing_donnee.content or {})
+                        new_content[champ] = valeur
+                        await donnee_repo.update(existing_donnee, new_content)
+                        persisted = True
+                except Exception as ex:
+                    print(f"⚠️ [WORKFLOW ACTION PERSISTENCE ERROR] {ex}")
+
             return {
                 "action": "champ_modifié",
                 "champ": champ,
                 "valeur": valeur,
+                "persiste_en_base": persisted
             }
 
         return {"action": "inconnue"}

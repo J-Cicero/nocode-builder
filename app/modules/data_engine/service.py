@@ -46,6 +46,19 @@ class DataEngineService:
             created_by=created_by,
         )
         
+        # ÉTAPE 4 — Déclenche les workflows associés (événement creation)
+        try:
+            from app.modules.workflow_engine.service import WorkflowService
+            workflow_service = WorkflowService(self.db)
+            await workflow_service.trigger_workflow(
+                project_id=UUID(str(donnee.project_id)),
+                evenement="creation",
+                table=table_name,
+                donnee={"id": str(donnee.tracking_id), **(donnee.content or {})}
+            )
+        except Exception as e:
+            print(f"⚠️ [WORKFLOW TRIGGER ERROR - creation] {e}")
+
         return DonneeResponse.model_validate(donnee)
 
     async def list(
@@ -63,7 +76,7 @@ class DataEngineService:
 
     async def get(self, donnee_id: UUID) -> DonneeResponse:
         """Récupère une donnée par ID."""
-        donnee = await self.donnee_repo.get_by_id(donnee_id)
+        donnee = await self.donnee_repo.get_by_tracking_id(donnee_id)
         if not donnee:
             raise HTTPException(status_code=404, detail="Donnée introuvable.")
         
@@ -76,13 +89,13 @@ class DataEngineService:
         modifie_par: UUID | None = None
     ) -> DonneeResponse:
         """Modifie une donnée et sauvegarde l'historique."""
-        donnee = await self.donnee_repo.get_by_id(donnee_id)
+        donnee = await self.donnee_repo.get_by_tracking_id(donnee_id)
         if not donnee:
             raise HTTPException(status_code=404, detail="Donnée introuvable.")
         
         # Sauvegarde l'historique avant modification
         await self.historique_repo.create(
-            donnee_id=donnee.id,
+            donnee_id=donnee.tracking_id,
             ancien_contenu=donnee.content,
             nouveau_contenu=data.content,
             modifie_par=modifie_par,
@@ -90,15 +103,46 @@ class DataEngineService:
         
         # Met à jour la donnée
         donnee_updated = await self.donnee_repo.update(donnee, data.content)
+
+        # Déclenche les workflows associés (événement modification)
+        try:
+            from app.modules.workflow_engine.service import WorkflowService
+            workflow_service = WorkflowService(self.db)
+            await workflow_service.trigger_workflow(
+                project_id=UUID(str(donnee_updated.project_id)),
+                evenement="modification",
+                table=donnee_updated.table_name,
+                donnee={"id": str(donnee_updated.tracking_id), **(donnee_updated.content or {})}
+            )
+        except Exception as e:
+            print(f"⚠️ [WORKFLOW TRIGGER ERROR - modification] {e}")
+
         return DonneeResponse.model_validate(donnee_updated)
 
     async def delete(self, donnee_id: UUID) -> None:
         """Supprime une donnée."""
-        donnee = await self.donnee_repo.get_by_id(donnee_id)
+        donnee = await self.donnee_repo.get_by_tracking_id(donnee_id)
         if not donnee:
             raise HTTPException(status_code=404, detail="Donnée introuvable.")
         
+        project_id = donnee.project_id
+        table_name = donnee.table_name
+        donnee_payload = {"id": str(donnee.tracking_id), **(donnee.content or {})}
+
         await self.donnee_repo.delete(donnee)
+
+        # Déclenche les workflows associés (événement suppression)
+        try:
+            from app.modules.workflow_engine.service import WorkflowService
+            workflow_service = WorkflowService(self.db)
+            await workflow_service.trigger_workflow(
+                project_id=UUID(str(project_id)),
+                evenement="suppression",
+                table=table_name,
+                donnee=donnee_payload
+            )
+        except Exception as e:
+            print(f"⚠️ [WORKFLOW TRIGGER ERROR - suppression] {e}")
 
     async def _validate_content(self, table, content: dict) -> None:
         """Valide les données contre le schéma de la table."""
