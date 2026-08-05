@@ -52,6 +52,7 @@ app.include_router(blueprints_router, prefix="/api/v1/blueprints", tags=["Bluepr
 # ─── Business Modules (Auth, Schema, Data, AI, Workflows, Generator, Interface) ──
 modules_to_load = [
     ("app.modules.auth.router", "auth_router", "/api", ["Auth"]),
+    ("app.modules.projects.router", "projects_router_module", "/api", [" Projets"]),
     ("app.modules.ai.router", "ai_router", "/api", ["AI Assistant"]),
     ("app.modules.schema.router", "schema_router", "/api", ["Constructeur de Schéma"]),
     ("app.modules.data_engine.router", "data_engine_router", "/api", ["Moteur de Données"]),
