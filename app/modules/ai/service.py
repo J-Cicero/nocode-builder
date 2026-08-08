@@ -47,7 +47,9 @@ class AIService:
         self.section_repo = SectionRepository(db)
         self.ai_client = AsyncOpenAI(
             api_key=settings.AI_API_KEY,
-            base_url=settings.AI_BASE_URL
+            base_url=settings.AI_BASE_URL,
+            timeout=60.0,
+            max_retries=1,
         )
         self.model = settings.AI_MODEL
 
@@ -177,7 +179,14 @@ class AIService:
             {"type": "function", "function": {"name": "generate_interface", "description": "Generate only UI pages and components from description", "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Details about the screens and UI elements"}}, "required": ["description"]}}}
         ]
         try:
-            response = await self.ai_client.chat.completions.create(model=self.model, messages=messages, tools=tools, tool_choice="auto", temperature=0.3, max_tokens=8192)
+            response = await self.ai_client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.3,
+                max_tokens=4096
+            )
             response_message = response.choices[0].message
             tool_calls = response_message.tool_calls
             ai_content = response_message.content or ""
@@ -208,7 +217,13 @@ class AIService:
                 ai_content = "Désolé, je n'ai pas pu générer de réponse."
         except Exception as e:
             print(f"❌ Chat Tool Error: {e}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {str(e)}")
+            err_str = str(e)
+            if "timed out" in err_str.lower() or "timeout" in err_str.lower():
+                ai_content = "⏱️ La requête a pris trop de temps. Le service IA est peut-être surchargé, réessaie dans quelques instants."
+                ai_message = await self.msg_repo.create(conversation_id=(await self.conv_repo.get_or_create(project_id)).tracking_id, role="assistant", content=ai_content)
+                await self.db.commit()
+                return MessageResponse.model_validate(ai_message)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {err_str}")
         ai_message = await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=ai_content)
         await self.db.commit()
         print(f"🏁 [AI CHAT] Total execution time: {time.time() - start_time:.2f}s")

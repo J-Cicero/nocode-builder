@@ -4,7 +4,11 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 import enum
+from typing import TYPE_CHECKING
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.modules.auth.models import User
 
 
 class ProjectStatus(str, enum.Enum):
@@ -33,7 +37,7 @@ class Project(Base):
     created_at  = Column(DateTime(timezone=True), server_default=func.now())
     updated_at  = Column(DateTime(timezone=True), onupdate=func.now())
 
-    owner       = relationship("app.modules.auth.models.User", backref="nocode_projects")
+    owner       = relationship("User", backref="nocode_projects")
 
     def __repr__(self):
         return f"<Project {self.name} | {self.status}>"
