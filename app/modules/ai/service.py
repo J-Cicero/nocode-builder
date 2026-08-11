@@ -378,9 +378,7 @@ class AIService:
                 if not interface: raise
 
         existing_pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
-        for page in existing_pages:
-            await self.page_repo.delete(page)
-        await self.db.flush()
+        existing_pages_by_path = {p.chemin: p for p in existing_pages}
 
         page_type_mapping = {"mobile": TypePage.MOBILE, "tablet": TypePage.TABLET, "desktop": TypePage.DESKTOP}
         pages_created = []
@@ -390,19 +388,31 @@ class AIService:
         for page_index, page_data in enumerate(interface_json.get("pages", [])):
             page_name = page_data.get("name") or f"Page {page_index + 1}"
             page_path = page_data.get("path") or f"/page-{page_index + 1}"
-            page_device = str(page_data.get("device", "mobile")).lower()
+            page_device = str(page_data.get("device", "desktop")).lower()
 
-            page = Page(
-                interface_id=interface.tracking_id,
-                nom=page_name,
-                chemin=page_path,
-                type_page=page_type_mapping.get(page_device, TypePage.MOBILE),
-                est_accueil=bool(page_data.get("is_home", page_index == 0)),
-                ordre=page_index
-            )
-            self.db.add(page)
-            await self.db.flush()
-            await self.db.refresh(page)
+            # Smart merge: reuse existing page if same path, or create new
+            if page_path in existing_pages_by_path:
+                page = existing_pages_by_path[page_path]
+                page.nom = page_name
+                page.type_page = page_type_mapping.get(page_device, TypePage.DESKTOP)
+                # Clear old sections for this updated page
+                old_sections = (await self.db.execute(select(Section).where(Section.page_id == page.tracking_id))).scalars().all()
+                for s in old_sections:
+                    await self.db.delete(s)
+                await self.db.flush()
+            else:
+                page = Page(
+                    interface_id=interface.tracking_id,
+                    nom=page_name,
+                    chemin=page_path,
+                    type_page=page_type_mapping.get(page_device, TypePage.DESKTOP),
+                    est_accueil=bool(page_data.get("is_home", page_index == 0)),
+                    ordre=len(existing_pages_by_path) + page_index
+                )
+                self.db.add(page)
+                await self.db.flush()
+                await self.db.refresh(page)
+
             pages_created.append(page_name)
 
             # 4. Pour chaque section dans page["sections"]
