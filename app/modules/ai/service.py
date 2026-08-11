@@ -378,7 +378,12 @@ class AIService:
                 if not interface: raise
 
         existing_pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
-        existing_pages_by_path = {p.chemin: p for p in existing_pages}
+        existing_pages_lookup = {}
+        for p in existing_pages:
+            if p.chemin:
+                existing_pages_lookup[p.chemin] = p
+            if p.nom:
+                existing_pages_lookup[p.nom.lower().strip()] = p
 
         page_type_mapping = {"mobile": TypePage.MOBILE, "tablet": TypePage.TABLET, "desktop": TypePage.DESKTOP}
         pages_created = []
@@ -389,11 +394,15 @@ class AIService:
             page_name = page_data.get("name") or f"Page {page_index + 1}"
             page_path = page_data.get("path") or f"/page-{page_index + 1}"
             page_device = str(page_data.get("device", "desktop")).lower()
+            norm_name = page_name.lower().strip()
 
-            # Smart merge: reuse existing page if same path, or create new
-            if page_path in existing_pages_by_path:
-                page = existing_pages_by_path[page_path]
+            # Smart merge: reuse existing page if same path OR same normalized name
+            existing_page = existing_pages_lookup.get(page_path) or existing_pages_lookup.get(norm_name)
+
+            if existing_page:
+                page = existing_page
                 page.nom = page_name
+                page.chemin = page_path
                 page.type_page = page_type_mapping.get(page_device, TypePage.DESKTOP)
                 # Clear old sections for this updated page
                 old_sections = (await self.db.execute(select(Section).where(Section.page_id == page.tracking_id))).scalars().all()
@@ -407,11 +416,13 @@ class AIService:
                     chemin=page_path,
                     type_page=page_type_mapping.get(page_device, TypePage.DESKTOP),
                     est_accueil=bool(page_data.get("is_home", page_index == 0)),
-                    ordre=len(existing_pages_by_path) + page_index
+                    ordre=len(existing_pages_lookup) + page_index
                 )
                 self.db.add(page)
                 await self.db.flush()
                 await self.db.refresh(page)
+                existing_pages_lookup[page_path] = page
+                existing_pages_lookup[norm_name] = page
 
             pages_created.append(page_name)
 
