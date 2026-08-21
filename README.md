@@ -245,41 +245,103 @@ requirements.txt          (dépendances Python)
 
 ---
 
-## 🚀 Démarrage rapide
+## 🚀 Démarrage rapide (Backend FastAPI)
 
-### Prerequisites
+Ces étapes permettent à une autre personne de cloner et lancer le backend localement.
+
+### 1) Prérequis
 - Python 3.10+
 - PostgreSQL 14+
-- pip ou Poetry
+- `pip`
 
-### Installation
+### 2) Cloner le projet
 
 ```bash
-# 1. Cloner et naviguer
-git clone <repo>
+git clone <URL_DU_REPO>
 cd nocode-builder
-
-# 2. Créer environnement virtuel
-python -m venv venv
-source venv/bin/activate  # sur Linux/Mac
-# ou sur Windows: venv\Scripts\activate
-
-# 3. Installer dépendances
-pip install -r requirements.txt
-
-# 4. Configurer .env
-cp .env.example .env
-# Remplir: DATABASE_URL, GROQ_API_KEY, SECRET_KEY, etc.
-
-# 5. Lancer les migrations
-alembic upgrade head
-
-# 6. Démarrer le serveur
-uvicorn app.main:app --reload
 ```
 
-L'API sera disponible sur `http://localhost:8000`  
-SwaggerUI: `http://localhost:8000/docs`
+### 3) Créer et activer l'environnement virtuel
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Sous Windows (PowerShell):
+
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+### 4) Installer les dépendances
+
+```bash
+pip install -r requirements.txt
+```
+
+### 5) Configurer les variables d'environnement
+
+```bash
+cp .env.example .env
+```
+
+Valeurs minimales à vérifier dans `.env`:
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+- `POSTGRES_DB`
+- `SECRET_KEY`
+- `AI_API_KEY`
+
+### 6) Créer la base PostgreSQL (si nécessaire)
+
+Exemple:
+
+```sql
+CREATE DATABASE nocode_builder_v2;
+```
+
+### 7) Appliquer les migrations
+
+```bash
+alembic upgrade head
+```
+
+### 8) Lancer le serveur FastAPI
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 9) Vérifier que le backend fonctionne
+
+- API: `http://localhost:8000`
+- Swagger: `http://localhost:8000/docs`
+- Santé API + DB: `http://localhost:8000/api/v1/health`
+
+Test rapide terminal:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+Réponse attendue (exemple):
+
+```json
+{"status":"ok","database":"ok"}
+```
+
+### Option Docker (backend seul)
+
+```bash
+docker build -t nocode-builder-api .
+docker run --rm -p 8000:8000 --env-file .env nocode-builder-api
+```
+
+Important: la base PostgreSQL doit être accessible depuis le conteneur.
 
 ---
 
