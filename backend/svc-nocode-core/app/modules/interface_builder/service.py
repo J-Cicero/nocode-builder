@@ -14,6 +14,7 @@ from app.modules.interface_builder.models import (
     Page,
     Composant,
     Section,
+    SectionType,
 )
 from app.modules.interface_builder.schema import (
     PageCreate,
@@ -23,6 +24,7 @@ from app.modules.interface_builder.schema import (
     ComposantUpdate,
     ComposantResponse,
     InterfaceResponse,
+    SectionResponse,
 )
 
 
@@ -338,4 +340,25 @@ class InterfaceService:
                 for s in sections
             ]
         }
+
+    async def create_section(self, page_id: UUID, data) -> SectionResponse:
+        page = await self.page_repo.get_by_tracking_id(page_id)
+        if not page:
+            raise HTTPException(status_code=404, detail="Page introuvable")
+
+        section_type = data.type.value if hasattr(data.type, "value") else str(data.type)
+        valid_types = {e.value for e in SectionType}
+        if section_type not in valid_types:
+            section_type = SectionType.TEXT_SECTION.value
+
+        section = await self.section_repo.create(
+            page_id=page_id,
+            type=section_type,
+            ordre=data.ordre,
+            title=data.title,
+            config=data.config,
+            connecte_a=data.connecte_a,
+            styles=data.styles,
+        )
+        return SectionResponse.from_orm(section)
 

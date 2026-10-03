@@ -13,6 +13,8 @@ from app.modules.interface_builder.schema import (
     ComposantUpdate,
     ComposantResponse,
     InterfaceResponse,
+    SectionCreate,
+    SectionResponse,
 )
 
 
@@ -182,3 +184,18 @@ async def get_page_sections(
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.get_page_sections(page_id)
+
+
+@router.post(
+    "/pages/{page_id}/sections",
+    response_model=SectionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Créer une section dans une page",
+)
+async def create_section(
+    page_id: UUID,
+    data: SectionCreate,
+    current_user: User = Depends(get_current_user),
+    service: InterfaceService = Depends(get_interface_service),
+):
+    return await service.create_section(page_id, data)

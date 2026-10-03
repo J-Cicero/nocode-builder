@@ -129,7 +129,7 @@ ComposantResponse.model_rebuild()
 class PageCreate(BaseModel):
     nom: str = Field(..., min_length=1, max_length=200)
     chemin: str = Field(..., min_length=1, max_length=200)
-    type_page: TypePage = TypePage.MOBILE
+    type_page: TypePage = TypePage.DESKTOP
     est_accueil: bool = False
     ordre: int = 0
 
