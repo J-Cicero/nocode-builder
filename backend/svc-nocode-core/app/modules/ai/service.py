@@ -119,7 +119,7 @@ class AIService:
             devices.append("tablet")
         if any(token in text for token in ["desktop", "web", "ordinateur", "bureau", "laptop", "pc"]):
             devices.append("desktop")
-        return devices or ["mobile"]
+        return devices or ["desktop"]
 
     @staticmethod
     def _ensure_requested_device_pages(interface_json: dict, requested_devices: list[str]) -> dict:

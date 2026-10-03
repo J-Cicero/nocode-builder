@@ -200,6 +200,7 @@ function CanvasPage({ initialNodes, initialSections, pageId, isSelected, refresh
           style: {
             width: type === 'inputNode' ? '260px' : (data.largeur || 'auto'),
             height: data.hauteur || 'auto',
+            pointerEvents: 'auto',
             ...(type === 'buttonNode' || type === 'inputNode' || type === 'imageNode' || type === 'containerNode' || type === 'listNode' || type === 'headingNode' || type === 'cardNode' || type === 'navNode' || type === 'formNode' ? {
               backgroundColor: 'transparent', border: 'none', padding: 0,
             } : {
@@ -237,44 +238,56 @@ function CanvasPage({ initialNodes, initialSections, pageId, isSelected, refresh
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
     >
-      {/* Zone de rendu principal : Sections IA (Pass-through pour les clics vers ReactFlow) */}
-      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1, pointerEvents: 'none', overflowY: 'auto' }}>
-        <div style={{ pointerEvents: 'auto' }}>
-          <SectionRenderer sections={sections} isLoading={isLoadingSections} connectionsMap={{}} />
-        </div>
+      {/* Zone de rendu principal : Sections IA (Toujours cliquables et scrollables) */}
+      <div 
+        className="custom-scrollbar"
+        style={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          width: '100%', 
+          height: '100%', 
+          zIndex: 2, 
+          pointerEvents: 'auto', 
+          overflowY: 'auto' 
+        }}
+      >
+        <SectionRenderer sections={sections} isLoading={isLoadingSections} connectionsMap={{}} />
       </div>
 
-      {/* Zone de travail : Drag & Drop */}
-      <ReactFlow
-        key={pageId}
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        onSelectionChange={onFlowSelectionChange}
-        onNodeClick={handleNodeClick}
-        nodesDraggable={true}
-        elementsSelectable={true}
-        panOnDrag={false}
-        panOnScroll={false}
-        zoomOnScroll={false}
-        zoomOnDoubleClick={false}
-        zoomOnPinch={false}
-        preventScrolling={true}
-        minZoom={1}
-        maxZoom={1}
-        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-        style={{ zIndex: 10, background: 'transparent', width: '100%', height: '100%' }}
-      >
-        <Background color="#f1f5f9" gap={25} size={1} variant="dots" />
-        <Controls
-          style={{ bottom: "10px", left: "10px" }}
-          showZoom={false}
-          showFitView={false}
-          showInteractive={false}
-        />
-      </ReactFlow>
+      {/* Zone de travail : Drag & Drop de composants au-dessus des sections */}
+      <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 10, pointerEvents: 'none' }}>
+        <ReactFlow
+          key={pageId}
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          onSelectionChange={onFlowSelectionChange}
+          onNodeClick={handleNodeClick}
+          nodesDraggable={true}
+          elementsSelectable={true}
+          panOnDrag={false}
+          panOnScroll={false}
+          zoomOnScroll={false}
+          zoomOnDoubleClick={false}
+          zoomOnPinch={false}
+          preventScrolling={true}
+          minZoom={1}
+          maxZoom={1}
+          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          style={{ background: 'transparent', width: '100%', height: '100%', pointerEvents: 'none' }}
+        >
+          <Background color="#f1f5f9" gap={25} size={1} variant="dots" />
+          <Controls
+            style={{ bottom: "10px", left: "10px", pointerEvents: 'auto' }}
+            showZoom={false}
+            showFitView={false}
+            showInteractive={false}
+          />
+        </ReactFlow>
+      </div>
 
       {/* Zone Header / Footer suggestion - visuel seulement */}
       <div className="absolute top-0 left-0 right-0 h-[80px] border-b border-dashed border-blue-50 flex items-center justify-center text-[9px] text-gray-300 font-bold bg-gray-50/30 pointer-events-none z-0 tracking-[0.2em]">
@@ -380,6 +393,7 @@ function PageViewport({ page, index, projectId, refreshInterface, updateComponen
         style: {
           width: comp.largeur || 'auto',
           height: comp.hauteur || 'auto',
+          pointerEvents: 'auto',
           ...(comp.styles || {}),
           ...(type === 'buttonNode' || type === 'inputNode' || type === 'imageNode' || type === 'containerNode' || type === 'listNode' || type === 'headingNode' || type === 'cardNode' || type === 'navNode' || type === 'formNode' ? {
             backgroundColor: comp.styles?.backgroundColor || 'transparent',

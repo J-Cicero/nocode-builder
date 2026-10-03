@@ -70,8 +70,8 @@ class Page(Base):
     type_page = Column(
         Enum(TypePage, name="typepage", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
-        default=TypePage.MOBILE,
-        server_default=TypePage.MOBILE.value,
+        default=TypePage.DESKTOP,
+        server_default=TypePage.DESKTOP.value,
     )
     est_accueil = Column(Boolean, default=False)
     ordre = Column(Integer, default=0)
