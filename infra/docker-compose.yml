@@ -1,0 +1,213 @@
+version: "3.9"
+
+# Local dev only — infra/terraform + infra/k8s-helm own real environments.
+# Brings up: Postgres for IAM, svc-iam, svc-api-gateway, and host-shell.
+# svc-nocode-core (your existing monolith) is expected to run separately on
+# :8000 until it's containerized here too — point NOCODE_CORE_URL at it.
+
+services:
+  svc-iam-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: iam
+      POSTGRES_PASSWORD: iam
+      POSTGRES_DB: iam
+    ports: ["5433:5432"]
+    volumes: ["iam_db_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iam"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  svc-iam:
+    build: ../backend/svc-iam
+    environment:
+      DATABASE_URL: postgresql+asyncpg://iam:iam@svc-iam-db:5432/iam
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+    depends_on:
+      svc-iam-db:
+        condition: service_healthy
+    ports: ["8001:8001"]
+
+  svc-nocode-core-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: nocode
+      POSTGRES_PASSWORD: nocode
+      POSTGRES_DB: nocode_builder_v2
+    ports: ["5434:5432"]
+    volumes: ["nocode_db_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nocode"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  svc-nocode-core:
+    build: ../backend/svc-nocode-core
+    environment:
+      POSTGRES_HOST: svc-nocode-core-db
+      POSTGRES_USER: nocode
+      POSTGRES_PASSWORD: nocode
+      POSTGRES_DB: nocode_builder_v2
+      # Same signing secret as svc-iam -- this service no longer authenticates
+      # users itself, it only validates tokens svc-iam already issued. See
+      # app/core/identity.py. In real environments both read this from Vault,
+      # never from a docker-compose env block.
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+    depends_on:
+      svc-nocode-core-db:
+        condition: service_healthy
+    ports: ["8002:8000"]
+
+  # --- Phase 2: tenant, billing, payments ---
+
+  svc-tenant-db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: tenant, POSTGRES_PASSWORD: tenant, POSTGRES_DB: tenant }
+    volumes: ["tenant_db_data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U tenant"], interval: 5s, timeout: 3s, retries: 5 }
+
+  svc-tenant:
+    build: ../backend/svc-tenant
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tenant:tenant@svc-tenant-db:5432/tenant
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+    depends_on: { svc-tenant-db: { condition: service_healthy } }
+    ports: ["8003:8003"]
+
+  svc-billing-db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: billing, POSTGRES_PASSWORD: billing, POSTGRES_DB: billing }
+    volumes: ["billing_db_data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U billing"], interval: 5s, timeout: 3s, retries: 5 }
+
+  svc-billing:
+    build: ../backend/svc-billing
+    environment:
+      DATABASE_URL: postgresql+asyncpg://billing:billing@svc-billing-db:5432/billing
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+    depends_on: { svc-billing-db: { condition: service_healthy } }
+    ports: ["8004:8004"]
+
+  svc-payment-gateway:
+    build: ../backend/svc-payment-gateway
+    environment:
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+      BILLING_UPSTREAM: http://svc-billing:8004
+    depends_on: [svc-billing]
+    ports: ["8005:8005"]
+    # Ships with MockProvider -- see app/modules/payments/provider.py.
+    # DO NOT point this at a real environment without swapping in a real PSP.
+
+  # --- Phase 3: support, RGPD/compliance ---
+
+  svc-customer-service-db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: customer_service, POSTGRES_PASSWORD: customer_service, POSTGRES_DB: customer_service }
+    volumes: ["cs_db_data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U customer_service"], interval: 5s, timeout: 3s, retries: 5 }
+
+  svc-customer-service:
+    build: ../backend/svc-customer-service
+    environment:
+      DATABASE_URL: postgresql+asyncpg://customer_service:customer_service@svc-customer-service-db:5432/customer_service
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+    depends_on: { svc-customer-service-db: { condition: service_healthy } }
+    ports: ["8006:8006"]
+
+  svc-service-desk-db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: service_desk, POSTGRES_PASSWORD: service_desk, POSTGRES_DB: service_desk }
+    volumes: ["sd_db_data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U service_desk"], interval: 5s, timeout: 3s, retries: 5 }
+
+  svc-service-desk:
+    build: ../backend/svc-service-desk
+    environment:
+      DATABASE_URL: postgresql+asyncpg://service_desk:service_desk@svc-service-desk-db:5432/service_desk
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+    depends_on: { svc-service-desk-db: { condition: service_healthy } }
+    ports: ["8007:8007"]
+
+  svc-consent-dsar-db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: consent_dsar, POSTGRES_PASSWORD: consent_dsar, POSTGRES_DB: consent_dsar }
+    volumes: ["dsar_db_data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U consent_dsar"], interval: 5s, timeout: 3s, retries: 5 }
+
+  svc-consent-dsar:
+    build: ../backend/svc-consent-dsar
+    environment:
+      DATABASE_URL: postgresql+asyncpg://consent_dsar:consent_dsar@svc-consent-dsar-db:5432/consent_dsar
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+      # Targets for real cross-service erasure -- see app/modules/dsar/erasure.py
+      IAM_UPSTREAM: http://svc-iam:8001
+      NOCODE_UPSTREAM: http://svc-nocode-core:8000
+      CUSTOMER_SERVICE_UPSTREAM: http://svc-customer-service:8006
+      SERVICE_DESK_UPSTREAM: http://svc-service-desk:8007
+    depends_on: { svc-consent-dsar-db: { condition: service_healthy } }
+    ports: ["8008:8008"]
+
+  svc-api-gateway:
+    build: ../backend/svc-api-gateway
+    environment:
+      IAM_UPSTREAM: http://svc-iam:8001
+      NOCODE_UPSTREAM: http://svc-nocode-core:8000
+      TENANT_UPSTREAM: http://svc-tenant:8003
+      BILLING_UPSTREAM: http://svc-billing:8004
+      PAYMENT_UPSTREAM: http://svc-payment-gateway:8005
+      CUSTOMER_SERVICE_UPSTREAM: http://svc-customer-service:8006
+      SERVICE_DESK_UPSTREAM: http://svc-service-desk:8007
+      CONSENT_DSAR_UPSTREAM: http://svc-consent-dsar:8008
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:-dev-only-secret-do-not-use-in-prod}
+    depends_on: [svc-iam, svc-nocode-core, svc-tenant, svc-billing, svc-payment-gateway, svc-customer-service, svc-service-desk, svc-consent-dsar]
+    ports: ["8000:8000"]
+
+  host-shell:
+    build:
+      context: ../frontend/host-shell
+    environment:
+      VITE_GATEWAY_URL: http://localhost:8000/api
+    depends_on: [svc-api-gateway]
+    ports: ["5173:5173"]
+
+  portal-admin:
+    build: { context: ../frontend/portal-admin }
+    environment: { VITE_GATEWAY_URL: http://localhost:8000/api }
+    depends_on: [svc-api-gateway]
+    ports: ["5174:5174"]
+
+  portal-super-admin:
+    build: { context: ../frontend/portal-super-admin }
+    environment: { VITE_GATEWAY_URL: http://localhost:8000/api }
+    depends_on: [svc-api-gateway]
+    ports: ["5175:5175"]
+
+  site-legal-rgpd:
+    build: { context: ../frontend/site-legal-rgpd }
+    environment: { VITE_GATEWAY_URL: http://localhost:8000/api }
+    depends_on: [svc-api-gateway]
+    ports: ["5176:5176"]
+
+  portal-customer-service:
+    build: { context: ../frontend/portal-customer-service }
+    environment: { VITE_GATEWAY_URL: http://localhost:8000/api }
+    depends_on: [svc-api-gateway]
+    ports: ["5177:5177"]
+
+  portal-service-desk:
+    build: { context: ../frontend/portal-service-desk }
+    environment: { VITE_GATEWAY_URL: http://localhost:8000/api }
+    depends_on: [svc-api-gateway]
+    ports: ["5178:5178"]
+
+volumes:
+  iam_db_data:
+  nocode_db_data:
+  tenant_db_data:
+  billing_db_data:
+  cs_db_data:
+  sd_db_data:
+  dsar_db_data:
