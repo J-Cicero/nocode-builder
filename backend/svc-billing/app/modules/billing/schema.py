@@ -30,6 +30,7 @@ class InvoiceResponse(BaseModel):
     subscription_id: UUID
     amount: Decimal
     status: InvoiceStatus
+    payment_provider_ref: str | None = None
     issued_at: datetime | None
     paid_at: datetime | None
 

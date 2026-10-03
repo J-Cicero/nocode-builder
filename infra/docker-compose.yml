@@ -173,6 +173,16 @@ services:
     depends_on: [svc-api-gateway]
     ports: ["5173:5173"]
 
+  portal-user:
+    build:
+      context: ../frontend/portal-user
+    environment:
+      REACT_APP_API_BASE_URL: http://localhost:8000/api/nocode/api
+      REACT_APP_IAM_URL: http://localhost:8000/api/iam
+      REACT_APP_IAM_REFRESH_URL: http://localhost:8000/api/iam/auth/refresh
+    depends_on: [svc-api-gateway]
+    ports: ["3000:3000"]
+
   portal-admin:
     build: { context: ../frontend/portal-admin }
     environment: { VITE_GATEWAY_URL: http://localhost:8000/api }

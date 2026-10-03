@@ -428,7 +428,26 @@ class AIService:
 
             # 4. Pour chaque section dans page["sections"]
             for section_index, section_data in enumerate(page_data.get("sections", [])):
-                section_type = section_data.get("type", "text-section")
+                raw_type = str(section_data.get("type", "text-section")).lower()
+                valid_types = {e.value for e in SectionType}
+
+                if raw_type in valid_types:
+                    section_type = raw_type
+                elif "hero" in raw_type:
+                    section_type = SectionType.HERO.value
+                elif "nav" in raw_type or "header" in raw_type:
+                    section_type = SectionType.NAVBAR.value
+                elif "table" in raw_type or "grid" in raw_type and "card" not in raw_type:
+                    section_type = SectionType.DATA_TABLE.value
+                elif "stat" in raw_type or "kpi" in raw_type:
+                    section_type = SectionType.STATS_ROW.value
+                elif "form" in raw_type:
+                    section_type = SectionType.FORM.value
+                elif "card" in raw_type:
+                    section_type = SectionType.CARD_GRID.value
+                else:
+                    section_type = SectionType.TEXT_SECTION.value
+
                 section_ordre = section_data.get("ordre", section_index)
                 section_config = section_data.get("config", {})
                 section_connecte_a = section_config.get("table")
