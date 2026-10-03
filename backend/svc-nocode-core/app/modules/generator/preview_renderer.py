@@ -262,6 +262,47 @@ def _render_component(component: dict) -> str:
     if ui_type == "spacer":
         spacer_height = escape(str(props.get("height", "24")))
         return f'<section class="block" style="width:{width};min-height:{spacer_height}px;"></section>'
+    if ui_type == "navbar":
+        title = escape(props.get("title", config.get("title", "App Name")))
+        links = props.get("links", config.get("links", []))
+        links_html = "".join([f'<a href="{escape(l.get("path", "#"))}" style="margin-left:16px;color:#C4622D;text-decoration:none;font-weight:bold;">{escape(l.get("label", "Lien"))}</a>' for l in links])
+        return f'<header style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:#1A0E0A;color:#FFFFFF;border-radius:14px;margin-bottom:18px;"><h2 style="margin:0;font-size:20px;font-family:serif;">{title}</h2><nav>{links_html}</nav></header>'
+
+    if ui_type == "hero":
+        title = escape(props.get("title", config.get("title", "Bienvenue sur votre Application")))
+        subtitle = escape(props.get("subtitle", config.get("subtitle", "Gérez votre activité avec efficacité.")))
+        cta = props.get("cta", config.get("cta", {"label": "Commencer", "href": "#"}))
+        return f'<section style="text-align:center;padding:48px 24px;background:linear-gradient(180deg,#FBF4E9,#FFFFFF);border:1px solid #E8D9C4;border-radius:20px;margin-bottom:24px;"><h1 style="font-size:36px;font-family:serif;color:#1A0E0A;margin-bottom:12px;">{title}</h1><p style="color:#7A5C44;font-size:16px;max-width:600px;margin:0 auto 24px;">{subtitle}</p><a href="{escape(cta.get("href", "#"))}" class="btn" style="padding:12px 28px;font-size:15px;">{escape(cta.get("label", "Action"))}</a></section>'
+
+    if ui_type == "stats-row":
+        stats = props.get("stats", config.get("stats", []))
+        if not stats:
+            stats = [{"label": "Total", "value": "100"}, {"label": "Actifs", "value": "85"}]
+        cards_html = "".join([
+            f'<div style="flex:1;min-width:200px;background:#FFFFFF;border:1px solid #E8D9C4;border-radius:14px;padding:20px;box-shadow:0 2px 4px rgba(0,0,0,0.02);"><span style="font-size:12px;color:#7A5C44;font-weight:bold;text-transform:uppercase;">{escape(s.get("label", "Stat"))}</span><div style="font-size:28px;font-weight:bold;color:#1A0E0A;margin-top:6px;">{escape(str(s.get("value", "0")))}</div></div>'
+            for s in stats
+        ])
+        return f'<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px;">{cards_html}</div>'
+
+    if ui_type == "data-table":
+        title = escape(props.get("title", config.get("title", "Données")))
+        cols = props.get("columns", config.get("columns", ["ID", "Nom", "Statut"]))
+        ths = "".join([f'<th style="padding:12px;border-bottom:2px solid #E8D9C4;color:#2C1A0E;">{escape(c)}</th>' for c in cols])
+        return f'<section class="block card" style="margin-bottom:24px;"><h3 style="font-family:serif;margin-top:0;color:#1A0E0A;">{title}</h3><table><thead><tr>{ths}</tr></thead><tbody><tr><td style="padding:12px;border-bottom:1px solid #E8D9C4;color:#7A5C44;" colspan="{len(cols)}">Données connectées en temps réel</td></tr></tbody></table></section>'
+
+    if ui_type == "form":
+        title = escape(props.get("title", config.get("title", "Formulaire")))
+        fields = props.get("fields", config.get("fields", []))
+        f_html = "".join([
+            f'<div style="margin-bottom:14px;"><label class="label">{escape(f.get("label", f.get("name", "Champ")))}</label><input class="input" type="{escape(f.get("type", "text"))}" placeholder="Saisir..." /></div>'
+            for f in fields
+        ])
+        return f'<section class="block card" style="max-width:540px;margin:0 auto 24px;"><h3 style="font-family:serif;margin-top:0;color:#1A0E0A;">{title}</h3><form>{f_html}<button type="button" class="btn" style="width:100%;">Valider</button></form></section>'
+
+    if ui_type == "card-grid":
+        title = escape(props.get("title", config.get("title", "Éléments")))
+        return f'<section style="margin-bottom:24px;"><h3 style="font-family:serif;color:#1A0E0A;">{title}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;"><div class="block card"><div style="font-weight:bold;margin-bottom:6px;">Élément 1</div><p class="muted">Description dynamique</p></div><div class="block card"><div style="font-weight:bold;margin-bottom:6px;">Élément 2</div><p class="muted">Description dynamique</p></div></div></section>'
+
     if ui_type in {"container", "columns"}:
         return f'<section class="block card" {style}><p class="muted">{escape(ui_type.title())} block</p></section>'
 

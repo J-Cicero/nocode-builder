@@ -15,7 +15,7 @@ from app.modules.generator.schema import (
     DeploymentResponse,
 )
 from app.modules.generator.generator_engine import GeneratorEngine
-from app.modules.interface_builder.models import Interface, Page, Composant
+from app.modules.interface_builder.models import Interface, Page, Composant, Section
 from app.modules.projects.repository import ProjectRepository
 from app.modules.generator.preview_renderer import render_preview_site, build_static_site_files
 
@@ -93,11 +93,7 @@ class GeneratorService:
         generations = await self.repo.get_by_project_id(project_id)
         return [GenerationResponse.from_orm(g) for g in generations]
 
-    async def deploy_preview(self, project_id: UUID, base_url: str) -> DeploymentPreviewResponse:
-        project = await self.project_repo.get_by_tracking_id(project_id)
-        if not project:
-            raise HTTPException(status_code=404, detail="Projet introuvable")
-
+    async def _extract_pages_payload(self, project_id: UUID, project) -> list[dict]:
         interface_stmt = select(Interface).where(Interface.project_id == project_id)
         interface_result = await self.db.execute(interface_stmt)
         interface = interface_result.scalar_one_or_none()
@@ -111,8 +107,9 @@ class GeneratorService:
             )
             pages_result = await self.db.execute(pages_stmt)
             pages = list(pages_result.scalars().all())
-            
+
             for page in pages:
+                # 1. Composants atomiques
                 composants_stmt = (
                     select(Composant)
                     .where((Composant.page_id == page.tracking_id) & (Composant.parent_id == None))
@@ -120,29 +117,60 @@ class GeneratorService:
                 )
                 composants_result = await self.db.execute(composants_stmt)
                 composants = list(composants_result.scalars().all())
-                pages_payload.append(
-                    {
-                        "nom": page.nom,
-                        "chemin": page.chemin,
-                        "type_page": page.type_page.value if hasattr(page.type_page, "value") else str(page.type_page),
-                        "est_accueil": page.est_accueil,
-                        "composants": [
-                            {
-                                "largeur": composant.largeur,
-                                "hauteur": composant.hauteur,
-                                "config": composant.config,
-                            }
-                            for composant in composants
-                        ],
-                    }
+
+                # 2. Sections (Système B / IA / Templates)
+                sections_stmt = (
+                    select(Section)
+                    .where(Section.page_id == page.tracking_id)
+                    .order_by(Section.ordre)
                 )
+                sections_result = await self.db.execute(sections_stmt)
+                sections = list(sections_result.scalars().all())
+
+                components_list = []
+                # Ajouter les sections comme composants de premier ordre
+                for section in sections:
+                    components_list.append({
+                        "largeur": "100%",
+                        "hauteur": "auto",
+                        "config": {
+                            "uiType": section.type,
+                            "title": section.title,
+                            "props": section.config or {},
+                            "connecte_a": section.connecte_a,
+                        }
+                    })
+
+                # Ajouter les composants atomiques
+                for comp in composants:
+                    components_list.append({
+                        "largeur": comp.largeur,
+                        "hauteur": comp.hauteur,
+                        "config": comp.config or {},
+                    })
+
+                pages_payload.append({
+                    "nom": page.nom,
+                    "chemin": page.chemin,
+                    "type_page": page.type_page.value if hasattr(page.type_page, "value") else str(page.type_page),
+                    "est_accueil": page.est_accueil,
+                    "composants": components_list,
+                })
 
         if not pages_payload:
-            pages_payload = project.config.get("pages", [])
-        
+            pages_payload = project.config.get("pages", []) if project.config else []
+
         if not pages_payload:
             pages_payload = [{"nom": "Accueil", "chemin": "/", "type_page": "desktop", "est_accueil": True, "composants": []}]
 
+        return pages_payload
+
+    async def deploy_preview(self, project_id: UUID, base_url: str) -> DeploymentPreviewResponse:
+        project = await self.project_repo.get_by_tracking_id(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Projet introuvable")
+
+        pages_payload = await self._extract_pages_payload(project_id, project)
         deployment_id = str(project_id)
         render_preview_site(str(project_id), pages_payload, deployment_id)
         preview_url = f"{base_url.rstrip('/')}/public-deployments/{deployment_id}/"
@@ -166,49 +194,8 @@ class GeneratorService:
         interface = interface_result.scalar_one_or_none()
         
         deployment = await self.deployment_repo.create(interface.tracking_id if interface else project_id)
+        pages_payload = await self._extract_pages_payload(project_id, project)
 
-        pages_payload = []
-        if interface:
-            pages_stmt = (
-                select(Page)
-                .where(Page.interface_id == interface.tracking_id)
-                .order_by(Page.ordre)
-            )
-            pages_result = await self.db.execute(pages_stmt)
-            pages = list(pages_result.scalars().all())
-            
-            for page in pages:
-                composants_stmt = (
-                    select(Composant)
-                    .where((Composant.page_id == page.tracking_id) & (Composant.parent_id == None))
-                    .order_by(Composant.ordre)
-                )
-                composants_result = await self.db.execute(composants_stmt)
-                composants = list(composants_result.scalars().all())
-                pages_payload.append(
-                    {
-                        "nom": page.nom,
-                        "chemin": page.chemin,
-                        "type_page": page.type_page.value if hasattr(page.type_page, "value") else str(page.type_page),
-                        "est_accueil": page.est_accueil,
-                        "composants": [
-                            {
-                                "largeur": composant.largeur,
-                                "hauteur": composant.hauteur,
-                                "config": composant.config,
-                            }
-                            for composant in composants
-                        ],
-                    }
-                )
-
-        if not pages_payload:
-            pages_payload = project.config.get("pages", [])
-            
-        if not pages_payload:
-            pages_payload = [{"nom": "Accueil", "chemin": "/", "type_page": "desktop", "est_accueil": True, "composants": []}]
-
-        await self.db.commit()
         await self.db.commit()
         await self.db.refresh(deployment)
         files = build_static_site_files(project.name, pages_payload)
