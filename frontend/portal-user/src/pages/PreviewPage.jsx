@@ -7,7 +7,6 @@ import {
   ArrowLeft, 
   Monitor, 
   Tablet, 
-  Smartphone, 
   Loader2, 
   Layers, 
   CheckCircle2, 
@@ -109,15 +108,6 @@ export default function PreviewPage() {
               title="Tablette"
             >
               <Tablet size={16} />
-            </button>
-            <button
-              onClick={() => setViewportMode("mobile")}
-              className={`p-1.5 rounded-lg transition-all ${
-                viewportMode === "mobile" ? "bg-white shadow text-[#C4622D]" : "text-gray-400 hover:text-gray-700"
-              }`}
-              title="Mobile"
-            >
-              <Smartphone size={16} />
             </button>
           </div>
         </div>

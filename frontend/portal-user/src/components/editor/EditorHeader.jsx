@@ -11,7 +11,6 @@ import {
   Loader2, 
   Monitor, 
   Tablet, 
-  Smartphone, 
   Download, 
   ExternalLink, 
   X, 
@@ -110,39 +109,39 @@ export default function EditorHeader() {
 
   return (
     <>
-      <div className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-6 shadow-sm z-50">
-        <div className="flex items-center gap-6">
+      <div className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 shadow-sm z-50">
+        <div className="flex items-center gap-4">
           <button 
             onClick={() => navigate('/app/dashboard')}
-            className="p-2 hover:bg-[#FBF4E9] rounded-xl text-[#A08060] transition-colors"
+            className="p-1.5 hover:bg-[#FBF4E9] rounded-xl text-[#A08060] transition-colors"
           >
-            <ArrowLeft size={20} />
+            <ArrowLeft size={16} />
           </button>
           
           <div className="flex flex-col">
-            <h1 className="text-lg font-bold text-[#1A0E0A] font-serif leading-none">
+            <h1 className="text-base font-bold text-[#1A0E0A] font-serif leading-none">
               {currentProject?.name || "Projet EnoC"}
             </h1>
-            <span className="text-[10px] text-green-600 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
+            <span className="text-[9px] text-green-600 font-bold uppercase tracking-widest mt-0.5 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
               Enregistré
             </span>
           </div>
 
-          <div className="h-10 w-px bg-gray-200 mx-2"></div>
+          <div className="h-7 w-px bg-gray-200 mx-1.5"></div>
 
-          <div className="flex items-center bg-[#FBF4E9] p-1 rounded-2xl border border-[#E8D9C4]">
+          <div className="flex items-center bg-[#FBF4E9] p-0.5 rounded-xl border border-[#E8D9C4]">
             {tabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveView(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   activeView === tab.id 
-                    ? "bg-[#C4622D] text-white shadow-md" 
+                    ? "bg-[#C4622D] text-white shadow-sm" 
                     : "text-[#7A5C44] hover:text-[#C4622D]"
                 }`}
               >
-                <tab.icon size={14} />
+                <tab.icon size={13} />
                 {tab.label}
               </button>
             ))}
@@ -150,44 +149,37 @@ export default function EditorHeader() {
         </div>
 
         {activeView === "interface" && (
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center bg-[#F1F5F9] p-1 rounded-2xl border border-gray-200">
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center bg-[#F1F5F9] p-0.5 rounded-xl border border-gray-200">
             <button 
               onClick={() => setViewportMode("desktop")}
-              className={`p-2 rounded-xl transition-all ${viewportMode === "desktop" ? "bg-white shadow text-[#1A0E0A]" : "text-gray-400 hover:text-[#1A0E0A]"}`}
+              className={`p-1.5 rounded-lg transition-all ${viewportMode === "desktop" ? "bg-white shadow text-[#1A0E0A]" : "text-gray-400 hover:text-[#1A0E0A]"}`}
               title="Desktop"
             >
-              <Monitor size={16} />
+              <Monitor size={15} />
             </button>
             <button 
               onClick={() => setViewportMode("tablet")}
-              className={`p-2 rounded-xl transition-all ${viewportMode === "tablet" ? "bg-white shadow text-[#1A0E0A]" : "text-gray-400 hover:text-[#1A0E0A]"}`}
-              title="Tablet"
+              className={`p-1.5 rounded-lg transition-all ${viewportMode === "tablet" ? "bg-white shadow text-[#1A0E0A]" : "text-gray-400 hover:text-[#1A0E0A]"}`}
+              title="Tablette"
             >
-              <Tablet size={16} />
-            </button>
-            <button 
-              onClick={() => setViewportMode("mobile")}
-              className={`p-2 rounded-xl transition-all ${viewportMode === "mobile" ? "bg-white shadow text-[#1A0E0A]" : "text-gray-400 hover:text-[#1A0E0A]"}`}
-              title="Mobile"
-            >
-              <Smartphone size={16} />
+              <Tablet size={15} />
             </button>
           </div>
         )}
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <button 
             onClick={handlePreview}
-            className="px-4 py-2 bg-white border border-[#E8D9C4] rounded-xl text-[#7A5C44] text-sm font-bold hover:bg-gray-50 flex items-center gap-2 transition-all cursor-pointer"
+            className="px-3 py-1.5 bg-white border border-[#E8D9C4] rounded-xl text-[#7A5C44] text-xs font-bold hover:bg-gray-50 flex items-center gap-1.5 transition-all cursor-pointer"
           >
-            <Play size={16} fill="currentColor" />
+            <Play size={14} fill="currentColor" />
             Aperçu
           </button>
           <button 
             onClick={() => setIsDeployModalOpen(true)}
-            className="px-6 py-2 bg-[#C4622D] text-white rounded-xl text-sm font-bold hover:bg-[#A04E24] flex items-center gap-2 shadow-lg shadow-[#C4622D]/20 transition-all cursor-pointer"
+            className="px-4.5 py-1.5 bg-[#C4622D] text-white rounded-xl text-xs font-bold hover:bg-[#A04E24] flex items-center gap-1.5 shadow-md shadow-[#C4622D]/20 transition-all cursor-pointer"
           >
-            <Rocket size={16} />
+            <Rocket size={14} />
             Déployer
           </button>
         </div>
@@ -196,8 +188,8 @@ export default function EditorHeader() {
       {/* MODALE DE DÉPLOIEMENT */}
       {isDeployModalOpen && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-6 animate-in fade-in zoom-in duration-150">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-gray-100 space-y-5 animate-in fade-in zoom-in duration-150">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-[#C4622D]/10 flex items-center justify-center text-[#C4622D]">
                   <Rocket size={20} />

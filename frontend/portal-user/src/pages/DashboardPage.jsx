@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Navbar from "../components/layout/Navbar";
 import ProjectCard from "../components/dashboard/ProjectCard";
 import NewProjectModal from "../components/dashboard/NewProjectModal";
 import Button from "../components/common/Button";
 import { useProjects } from "../store/projectStore";
 import { useAuth } from "../store/authStore";
+import { Sparkles, Plus } from "lucide-react";
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { projects, createProject, deleteProject, loading, error } = useProjects();
   const [filter, setFilter] = useState("all");
@@ -35,15 +38,17 @@ export default function DashboardPage() {
 
   const handleCreate = async (data) => {
     try {
-      await createProject({
+      const created = await createProject({
         name: data.name,
         description: data.description || "Gérez votre application en toute simplicité.",
         is_public: data.is_public,
       });
       setIsModalOpen(false);
+      const projectId = created?.tracking_id || created?.uuid || created?.id;
+      if (projectId) {
+        navigate(`/app/editor/${projectId}`);
+      }
     } catch (err) {
-      // L'erreur est déjà gérée dans le store (setError),
-      // mais on peut ajouter un feedback ici si nécessaire
       console.error("Échec de création dans DashboardPage:", err);
     }
   };
@@ -62,11 +67,17 @@ export default function DashboardPage() {
               Que construisez-vous aujourd'hui ?
             </p>
           </div>
-          <div>
+          <div className="flex items-center gap-3">
+            <Button 
+              variant="outline" 
+              onClick={() => navigate('/templates')} 
+              className="flex items-center gap-2 border-[#E8D9C4] hover:border-[#C4622D] text-[#7A5C44]"
+            >
+              <Sparkles size={16} className="text-[#C4622D]" />
+              Choisir un Modèle
+            </Button>
             <Button variant="primary" onClick={() => setIsModalOpen(true)} className="flex items-center gap-2">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-              </svg>
+              <Plus size={16} />
               Nouveau Projet
             </Button>
           </div>

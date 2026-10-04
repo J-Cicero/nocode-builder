@@ -122,7 +122,7 @@ export default function ActionPart() {
           >
             <option value="">-- Aucun Workflow --</option>
             {workflows.map(w => (
-              <option key={w.tracking_id} value={w.tracking_id}>{w.name}</option>
+              <option key={w.tracking_id} value={w.tracking_id}>{w.nom || w.name}</option>
             ))}
           </select>
         </div>

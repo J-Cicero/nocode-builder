@@ -105,6 +105,21 @@ class InterfaceService:
                     raise
 
         pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
+        if not pages:
+            try:
+                default_page = await self.page_repo.create(
+                    interface_id=interface.tracking_id,
+                    nom="Accueil",
+                    chemin="/",
+                    type_page="desktop",
+                    est_accueil=True,
+                    ordre=0,
+                )
+                pages = [default_page]
+            except Exception:
+                await self.db.rollback()
+                pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
+
         hydrated_pages = []
         for page in pages:
             composants = await self.composant_repo.get_by_page_id(page.tracking_id)

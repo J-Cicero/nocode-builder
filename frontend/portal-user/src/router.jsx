@@ -114,8 +114,8 @@ export default function AppRouter() {
         />
 
         {/* ====== CATCH-ALL & REDIRECTS ====== */}
-        {/* Rediriger /auth/register vers /auth/register/personal */}
-        <Route path="/auth/register" element={<Navigate to="/auth/register/personal" replace />} />
+        {/* Rediriger /auth/register vers /auth/signup */}
+        <Route path="/auth/register" element={<Navigate to="/auth/signup" replace />} />
 
         {/* Rediriger /app vers /app/dashboard */}
         <Route path="/app" element={<Navigate to="/app/dashboard" replace />} />

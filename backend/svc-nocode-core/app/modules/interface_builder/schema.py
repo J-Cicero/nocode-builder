@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, Any, List
@@ -47,6 +47,18 @@ class SectionCreate(BaseModel):
     config: Optional[dict[str, Any]] = None
     connecte_a: Optional[str] = None
     styles: Optional[dict[str, Any]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_section_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "ordre" not in data and "order" in data:
+                data["ordre"] = data["order"]
+            if not data.get("title") and data.get("titre"):
+                data["title"] = data["titre"]
+            if not data.get("config") and data.get("props"):
+                data["config"] = data["props"]
+        return data
 
 
 class SectionUpdate(BaseModel):
@@ -133,6 +145,24 @@ class PageCreate(BaseModel):
     est_accueil: bool = False
     ordre: int = 0
 
+    @model_validator(mode="before")
+    @classmethod
+    def handle_page_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "nom" not in data and "name" in data:
+                data["nom"] = data["name"]
+            if not data.get("chemin"):
+                slug = data.get("slug") or data.get("path")
+                if slug:
+                    data["chemin"] = f"/{slug.lstrip('/')}"
+                elif data.get("nom"):
+                    data["chemin"] = f"/{data['nom'].lower().replace(' ', '-')}"
+                else:
+                    data["chemin"] = "/page"
+            if "type_page" not in data:
+                data["type_page"] = TypePage.DESKTOP
+        return data
+
 
 class PageUpdate(BaseModel):
     nom: Optional[str] = Field(None, min_length=1, max_length=200)
@@ -141,17 +171,40 @@ class PageUpdate(BaseModel):
     est_accueil: Optional[bool] = None
     ordre: Optional[int] = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def handle_update_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "nom" not in data and "name" in data:
+                data["nom"] = data["name"]
+            if "chemin" not in data and "path" in data:
+                data["chemin"] = data["path"]
+        return data
+
 
 class PageResponse(BaseModel):
     tracking_id: UUID
     nom: str
+    name: Optional[str] = None
     chemin: str
+    path: Optional[str] = None
+    slug: Optional[str] = None
     type_page: TypePage
     est_accueil: bool
     ordre: int
     composants: List[ComposantResponse] = []
     sections: List[SectionResponse] = []
     created_at: datetime
+
+    @model_validator(mode="after")
+    def sync_aliases(self):
+        if self.name is None:
+            self.name = self.nom
+        if self.path is None:
+            self.path = self.chemin
+        if self.slug is None:
+            self.slug = self.chemin.lstrip("/")
+        return self
 
     class Config:
         from_attributes = True

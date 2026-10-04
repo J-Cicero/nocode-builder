@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Optional, Any
@@ -15,17 +15,32 @@ class StatutGeneration(str, Enum):
 class GenerationCreate(BaseModel):
     nom: str = Field(..., min_length=1, max_length=200)
 
+    @model_validator(mode="before")
+    @classmethod
+    def handle_generation_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "nom" not in data and "name" in data:
+                data["nom"] = data["name"]
+        return data
+
 
 class GenerationResponse(BaseModel):
     tracking_id: UUID
     project_id: UUID
     nom: str
+    name: Optional[str] = None
     statut: StatutGeneration
     url_zip: Optional[str]
     erreur: Optional[str]
     config: Optional[dict[str, Any]]
     created_at: datetime
     completed_at: Optional[datetime]
+
+    @model_validator(mode="after")
+    def sync_aliases(self):
+        if self.name is None:
+            self.name = self.nom
+        return self
 
     class Config:
         from_attributes = True

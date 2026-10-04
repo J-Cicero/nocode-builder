@@ -24,7 +24,7 @@ def get_data_service(db: AsyncSession = Depends(get_db)) -> DataEngineService:
     description="Crée une nouvelle entrée dans une table après validation contre le schéma défini."
 )
 async def create_data(
-    project_id: int,
+    project_id: UUID,
     table_name: str,
     data: DonneeCreate,
     current_user: User = Depends(get_current_user),
@@ -40,7 +40,7 @@ async def create_data(
     description="Récupère toutes les données stockées dans une table spécifique d'un projet."
 )
 async def list_data(
-    project_id: int,
+    project_id: UUID,
     table_name: str,
     current_user: User = Depends(get_current_user),
     service: DataEngineService = Depends(get_data_service),
@@ -55,7 +55,7 @@ async def list_data(
     description="Récupère les détails complets d'une seule entrée de données."
 )
 async def get_data(
-    project_id: int,
+    project_id: UUID,
     table_name: str,
     donnee_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -71,7 +71,7 @@ async def get_data(
     description="Met à jour le contenu d'une entrée et sauvegarde automatiquement l'historique des modifications."
 )
 async def update_data(
-    project_id: int,
+    project_id: UUID,
     table_name: str,
     donnee_id: UUID,
     data: DonneeUpdate,
@@ -88,7 +88,7 @@ async def update_data(
     description="Supprime complètement une entrée ainsi que son historique. Cette action est irréversible."
 )
 async def delete_data(
-    project_id: int,
+    project_id: UUID,
     table_name: str,
     donnee_id: UUID,
     current_user: User = Depends(get_current_user),

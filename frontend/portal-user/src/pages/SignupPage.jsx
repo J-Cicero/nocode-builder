@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../store/authStore';
 import Button from '../components/common/Button';
-import { Mail, Lock, User, Phone, Globe, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function SignupPage() {
   const navigate = useNavigate();
@@ -11,8 +11,6 @@ export default function SignupPage() {
     name: '',
     surname: '',
     email: '',
-    phone: '',
-    country: '',
     password: '',
     confirmPassword: ''
   });
@@ -25,6 +23,12 @@ export default function SignupPage() {
       setError('Les mots de passe ne correspondent pas');
       return;
     }
+
+    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/;
+    if (!passwordRegex.test(formData.password)) {
+      setError('Le mot de passe doit comporter au moins 8 caractères, dont une lettre, un chiffre et un caractère spécial (@$!%*?&).');
+      return;
+    }
     
     setLoading(true);
     setError('');
@@ -33,7 +37,7 @@ export default function SignupPage() {
       navigate('/app/dashboard');
     } catch (err) {
       if (err.response?.status === 422) {
-        setError("Veuillez vérifier les informations saisies (le mot de passe doit contenir 8 caractères, 1 chiffre et 1 caractère spécial).");
+        setError("Veuillez vérifier les informations saisies (8+ caractères, 1 chiffre et 1 symbole requis).");
       } else {
         setError(err.message || "Échec de l'inscription");
       }
@@ -132,46 +136,6 @@ export default function SignupPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[#1A0E0A] uppercase tracking-wider">Téléphone</label>
-                <div className="relative">
-                  <Phone size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#C4622D]" />
-                  <input
-                    type="tel"
-                    required
-                    className="w-full pl-11 pr-4 py-3 bg-[#FBF4E9] border border-[#E8D9C4] rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none transition-all text-sm"
-                    placeholder="+225 ..."
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-[#1A0E0A] uppercase tracking-wider">Pays</label>
-                <div className="relative">
-                  <Globe size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#C4622D]" />
-                  <select
-                    required
-                    className="w-full pl-11 pr-4 py-3 bg-[#FBF4E9] border border-[#E8D9C4] rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none transition-all text-sm appearance-none"
-                    value={formData.country}
-                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
-                  >
-                    <option value="">Sélectionner</option>
-                    <option value="CI">Côte d’Ivoire</option>
-                    <option value="SN">Sénégal</option>
-                    <option value="CM">Cameroun</option>
-                    <option value="BJ">Bénin</option>
-                    <option value="ML">Mali</option>
-                    <option value="TG">Togo</option>
-                    <option value="BF">Burkina Faso</option>
-                    <option value="GA">Gabon</option>
-                    <option value="CG">Congo</option>
-                    <option value="CD">RDC</option>
-                  </select>
-                </div>
-              </div>
-            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">

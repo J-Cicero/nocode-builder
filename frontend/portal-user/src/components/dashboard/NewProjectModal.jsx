@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { X, Layout, Plus, Loader2, Sparkles, Globe, Lock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { X, Layout, Plus, Loader2, Sparkles, Globe, Lock, ArrowRight } from 'lucide-react';
 import Button from '../common/Button';
 
 export default function NewProjectModal({ isOpen, onClose, onCreate }) {
+  const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -54,6 +56,27 @@ export default function NewProjectModal({ isOpen, onClose, onCreate }) {
             >
               <X size={24} />
             </button>
+          </div>
+
+          {/* Option Tremplin Modèles */}
+          <div 
+            onClick={() => { onClose(); navigate('/templates'); }}
+            className="mb-6 p-4 rounded-2xl bg-[#FFF0E8] border border-[#C4622D]/30 flex items-center justify-between cursor-pointer hover:bg-[#FFE6D8] transition-all group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#C4622D] text-white flex items-center justify-center">
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <div className="text-xs font-bold text-[#1A0E0A] group-hover:text-[#C4622D] transition-colors">
+                  Vous préférez partir d'un modèle prêt à l'emploi ?
+                </div>
+                <div className="text-[11px] text-[#7A5C44]">
+                  SaaS Analytics, E-commerce, CRM clients...
+                </div>
+              </div>
+            </div>
+            <ArrowRight size={16} className="text-[#C4622D] group-hover:translate-x-1 transition-transform" />
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">

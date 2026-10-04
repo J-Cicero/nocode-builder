@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, List
 from uuid import UUID
 from datetime import datetime
@@ -10,12 +10,28 @@ class ProjectCreate(BaseModel):
     description : Optional[str] = None
     is_public   : bool = False
 
+    @model_validator(mode="before")
+    @classmethod
+    def handle_project_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "name" not in data and "nom" in data:
+                data["name"] = data["nom"]
+        return data
+
 
 class ProjectUpdate(BaseModel):
     name        : Optional[str] = Field(None, min_length=2, max_length=200)
     description : Optional[str] = None
     is_public   : Optional[bool] = None
     config      : Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def handle_update_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "name" not in data and "nom" in data:
+                data["name"] = data["nom"]
+        return data
 
 
 class ProjectStatusUpdate(BaseModel):

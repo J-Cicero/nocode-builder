@@ -42,9 +42,15 @@ export default function LogicView() {
   const handleCreateWorkflow = async () => {
     try {
       await workflowsApi.create(projectId, {
+        nom: newRuleName || "Nouvelle automatisation",
         name: newRuleName || "Nouvelle automatisation",
         description: "Règle générée via l'interface",
+        actif: true,
         is_active: true,
+        etapes: [
+          { ordre: 0, type: "declencheur", config: { table: triggerTable, event: triggerEvent } },
+          { ordre: 1, type: "action", config: { type: actionType } }
+        ],
         trigger_type: "database",
         trigger_config: { table: triggerTable, event: triggerEvent },
         actions: [{ type: actionType, config: {} }]
@@ -90,15 +96,15 @@ export default function LogicView() {
           ) : workflows.map((wf) => (
             <div key={wf.tracking_id} className="bg-white p-6 rounded-3xl border border-[#E8D9C4] hover:border-[#C4622D] transition-all group flex items-center justify-between shadow-sm">
               <div className="flex items-center gap-6 flex-1">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${wf.is_active ? 'bg-[#FFF0E8] text-[#C4622D]' : 'bg-gray-100 text-gray-400'}`}>
-                  <Zap size={28} fill={wf.is_active ? "currentColor" : "none"} />
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${(wf.actif ?? wf.is_active) ? 'bg-[#FFF0E8] text-[#C4622D]' : 'bg-gray-100 text-gray-400'}`}>
+                  <Zap size={28} fill={(wf.actif ?? wf.is_active) ? "currentColor" : "none"} />
                 </div>
                 
                 <div className="flex-1 grid grid-cols-1 md:grid-cols-3 items-center gap-8">
                   <div>
-                    <h3 className="font-bold text-[#1A0E0A] mb-1">{wf.name}</h3>
-                    <span className={`text-[10px] font-bold uppercase tracking-widest ${wf.is_active ? 'text-green-600' : 'text-gray-400'}`}>
-                      {wf.is_active ? 'Actif' : 'Désactivé'}
+                    <h3 className="font-bold text-[#1A0E0A] mb-1">{wf.nom || wf.name}</h3>
+                    <span className={`text-[10px] font-bold uppercase tracking-widest ${(wf.actif ?? wf.is_active) ? 'text-green-600' : 'text-gray-400'}`}>
+                      {(wf.actif ?? wf.is_active) ? 'Actif' : 'Désactivé'}
                     </span>
                   </div>
 
@@ -113,7 +119,9 @@ export default function LogicView() {
                     <div className="px-3 py-1.5 bg-[#1A0E0A] rounded-lg text-[11px] font-bold text-white">
                       ACTION
                     </div>
-                    <span className="text-sm font-medium text-[#1A0E0A]">{wf.actions ? `${wf.actions.length} action(s)` : "Aucune action"}</span>
+                    <span className="text-sm font-medium text-[#1A0E0A]">
+                      {wf.etapes ? `${wf.etapes.filter(e => e.type === 'action').length || 1} action(s)` : (wf.actions ? `${wf.actions.length} action(s)` : "1 action")}
+                    </span>
                   </div>
                 </div>
               </div>

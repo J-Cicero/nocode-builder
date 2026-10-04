@@ -19,16 +19,16 @@ export default function Input({
 
   const baseInputStyle = {
     width: "100%",
-    padding: "12px 16px",
+    padding: "9px 13px",
     border: "1.5px solid #E8D9C4",
-    borderRadius: 8,
+    borderRadius: 7,
     fontFamily: "'DM Sans', sans-serif",
-    fontSize: 15,
+    fontSize: 13,
     outline: "none",
     backgroundColor: "#FFFFFF",
     transition: "border 200ms ease, box-shadow 200ms ease",
-    paddingLeft: icon ? 44 : 16,
-    paddingRight: rightIcon || isPassword ? 44 : 16,
+    paddingLeft: icon ? 36 : 13,
+    paddingRight: rightIcon || isPassword ? 36 : 13,
     ...style,
   };
 
@@ -54,7 +54,7 @@ export default function Input({
   return (
     <div style={wrapperStyle}>
       {label && (
-        <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 14, fontWeight: 500, color: "#2C1A0E" }}>
+        <label style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12.5, fontWeight: 600, color: "#2C1A0E" }}>
           {label}
         </label>
       )}

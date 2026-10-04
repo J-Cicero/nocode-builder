@@ -3,6 +3,7 @@ import {
   Palette, 
   Type, 
   Trash2, 
+  Plus,
   ArrowUp, 
   ArrowDown, 
   AlignLeft, 
@@ -112,6 +113,31 @@ export default function SectionInspector({
 
     await onUpdate(section.tracking_id, { ordre: newCurrentOrder });
     await onUpdate(nextSection.tracking_id, { ordre: newNextOrder });
+  };
+
+  const handleStatChange = (index, field, val) => {
+    const currentStats = config.stats || [
+      { label: "Projets", value: "150" },
+      { label: "Users", value: "2.5K" },
+      { label: "Revenue", value: "$50M" }
+    ];
+    const updated = [...currentStats];
+    updated[index] = { ...updated[index], [field]: val };
+    handleConfigChange("stats", updated);
+  };
+
+  const handleAddStat = () => {
+    const currentStats = config.stats || [
+      { label: "Projets", value: "150" },
+      { label: "Users", value: "2.5K" },
+      { label: "Revenue", value: "$50M" }
+    ];
+    handleConfigChange("stats", [...currentStats, { label: "Indicateur", value: "100" }]);
+  };
+
+  const handleRemoveStat = (index) => {
+    const currentStats = config.stats || [];
+    handleConfigChange("stats", currentStats.filter((_, i) => i !== index));
   };
 
   const currentBg = styles.backgroundColor || (section.type === "navbar" || section.type === "hero" ? "#0F172A" : "#FFFFFF");
@@ -282,6 +308,72 @@ export default function SectionInspector({
             placeholder="Ex: Envoyer ma demande"
             className="w-full px-3.5 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none"
           />
+        </div>
+      )}
+
+      {section.type === "stats-row" && (
+        <div className="space-y-3 pt-2 border-t border-gray-100">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-semibold text-gray-600">Métriques & Chiffres Clés</label>
+            <button
+              type="button"
+              onClick={handleAddStat}
+              className="text-xs text-[#C4622D] hover:text-[#A04E24] font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Plus size={12} /> Ajouter
+            </button>
+          </div>
+          <div className="space-y-2">
+            {(config.stats || [
+              { label: "Projets", value: "150" },
+              { label: "Users", value: "2.5K" },
+              { label: "Revenue", value: "$50M" }
+            ]).map((s, idx) => (
+              <div key={idx} className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-200">
+                <input
+                  type="text"
+                  placeholder="Valeur (ex: 1,420)"
+                  value={s.value || ""}
+                  onChange={(e) => handleStatChange(idx, "value", e.target.value)}
+                  className="w-1/2 px-2.5 py-1.5 bg-white text-xs border border-gray-200 rounded-lg outline-none font-bold"
+                />
+                <input
+                  type="text"
+                  placeholder="Libellé (ex: Utilisateurs)"
+                  value={s.label || ""}
+                  onChange={(e) => handleStatChange(idx, "label", e.target.value)}
+                  className="w-1/2 px-2.5 py-1.5 bg-white text-xs border border-gray-200 rounded-lg outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveStat(idx)}
+                  className="text-gray-400 hover:text-red-500 p-1 rounded transition-colors cursor-pointer"
+                  title="Supprimer"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {section.type === "data-table" && (
+        <div className="space-y-3 pt-2 border-t border-gray-100">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-gray-600">Colonnes du tableau (séparées par une virgule)</label>
+            <input
+              type="text"
+              value={Array.isArray(config.headers || config.columns) ? (config.headers || config.columns).join(", ") : ""}
+              onChange={(e) => {
+                const cols = e.target.value.split(",").map(c => c.trim()).filter(Boolean);
+                handleConfigChange("headers", cols);
+                handleConfigChange("columns", cols);
+              }}
+              placeholder="Ex: Client, Plan, Statut, Date"
+              className="w-full px-3.5 py-2 text-sm bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none"
+            />
+          </div>
         </div>
       )}
 

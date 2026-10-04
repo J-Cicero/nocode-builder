@@ -19,7 +19,7 @@ class DataEngineService:
 
     async def create(
         self,
-        project_id: int,
+        project_id: UUID,
         table_name: str,
         data: DonneeCreate,
         created_by: UUID | None = None
@@ -63,7 +63,7 @@ class DataEngineService:
 
     async def list(
         self,
-        project_id: int,
+        project_id: UUID,
         table_name: str
     ) -> DonneeListResponse:
         """Liste toutes les données d'une table."""

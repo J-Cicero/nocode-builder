@@ -27,17 +27,17 @@ export default function Modal({ isOpen, onClose, title, children }) {
       <div
         style={{
           backgroundColor: "#FFFFFF",
-          borderRadius: 16,
+          borderRadius: 14,
           width: "100%",
-          maxWidth: 520,
-          boxShadow: "0 20px 60px rgba(26,14,10,0.3)",
-          padding: "0 24px 24px",
+          maxWidth: 440,
+          boxShadow: "0 16px 48px rgba(26,14,10,0.25)",
+          padding: "0 20px 20px",
           animation: "popIn 220ms ease",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 0", borderBottom: "1px solid #E8D9C4" }}>
-          <h2 style={{ margin: 0, fontFamily: "'Playfair Display', serif", fontSize: 22, color: "#2C1A0E" }}>{title}</h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0", borderBottom: "1px solid #E8D9C4" }}>
+          <h2 style={{ margin: 0, fontFamily: "'Playfair Display', serif", fontSize: 18, color: "#2C1A0E" }}>{title}</h2>
           <button
             onClick={onClose}
             style={{ background: "transparent", border: "none", cursor: "pointer", padding: 6 }}
