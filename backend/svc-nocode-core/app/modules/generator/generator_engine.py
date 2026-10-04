@@ -12,7 +12,7 @@ from app.modules.schema.repository import (
     RelationRepository,
 )
 from app.modules.workflow_engine.repository import WorkflowRepository
-from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository
+from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository, SectionRepository
 
 
 class GeneratorEngine:
@@ -69,11 +69,12 @@ class GeneratorEngine:
             interface_repo = InterfaceRepository(self.db)
             page_repo = PageRepository(self.db)
             comp_repo = ComposantRepository(self.db)
+            section_repo = SectionRepository(self.db)
             interface = await interface_repo.get_by_project_id(self.project_id)
             if interface:
                 pages = await page_repo.get_by_interface_id(interface.tracking_id)
                 if pages:
-                    await self._generate_frontend(temp_dir, pages, comp_repo, tables)
+                    await self._generate_frontend(temp_dir, pages, comp_repo, section_repo, tables)
 
             # Compresse en ZIP
             zip_path = await self._create_zip(temp_dir)
@@ -510,7 +511,7 @@ python-multipart==0.0.6
     # FRONTEND GENERATION
     # ─────────────────────────────────────────────────
 
-    async def _generate_frontend(self, base: str, pages: list, comp_repo, tables: list):
+    async def _generate_frontend(self, base: str, pages: list, comp_repo, section_repo, tables: list):
         front_dir = f"{base}/frontend"
         os.makedirs(f"{front_dir}/src/pages", exist_ok=True)
         os.makedirs(f"{front_dir}/src/api", exist_ok=True)
@@ -741,10 +742,11 @@ export default createApiInstance('http://localhost:8000/api');
         
         for page in pages:
             comps = await comp_repo.get_by_page_id(page.tracking_id)
+            sections = await section_repo.get_by_page_id(page.tracking_id)
             page_name = self._capitalize(page.nom.replace(' ', ''))
             page_file = f"{page_name}.jsx"
             
-            page_content = self._generate_react_page(page_name, comps, table_map)
+            page_content = self._generate_react_page(page_name, comps, sections, table_map)
             self._write_file(f"{front_dir}/src/pages/{page_file}", page_content)
             
             app_imports.append(f"import {page_name} from './pages/{page_name}';")
@@ -797,7 +799,7 @@ export default App;
         self._write_file(f"{front_dir}/src/App.jsx", app_jsx)
 
 
-    def _generate_react_page(self, page_name: str, comps: list, table_map: dict) -> str:
+    def _generate_react_page(self, page_name: str, comps: list, sections: list, table_map: dict) -> str:
         imports = ["import React, { useState, useEffect } from 'react';"]
         imports.append("import { useApi } from '../context/ApiContext';")
 
@@ -805,6 +807,163 @@ export default App;
         effects = []
         render_elements = []
 
+        # ── Sections générées depuis la BDD (styles + config de l'utilisateur) ──
+        for section in sorted(sections, key=lambda s: s.ordre):
+            styles = section.styles or {}
+            config = section.config or {}
+            sec_type = section.type if hasattr(section.type, 'value') else str(section.type)
+            if hasattr(sec_type, 'value'):
+                sec_type = sec_type.value
+
+            # Construire le style inline à partir de styles BDD
+            style_parts = []
+            if styles.get("backgroundColor"):
+                style_parts.append(f'backgroundColor: "{styles["backgroundColor"]}"')
+            if styles.get("color"):
+                style_parts.append(f'color: "{styles["color"]}"')
+            if styles.get("padding"):
+                style_parts.append(f'padding: "{styles["padding"]}"')
+            if styles.get("textAlign"):
+                style_parts.append(f'textAlign: "{styles["textAlign"]}"')
+            # Double braces → produces {{...}} in the f-string → renders as {object} in JSX
+            inner = ", ".join(style_parts) if style_parts else ""
+            style_str = "{{" + inner + "}}" if inner else "{{}}"
+
+            if sec_type in ("hero", "HERO"):
+                title = config.get("title", "Bienvenue")
+                subtitle = config.get("subtitle", "")
+                btn_text = config.get("buttonText", "Commencer")
+                btn_color = config.get("buttonColor", "#C4622D")
+                render_elements.append(f'''
+      <section style={style_str}>
+        <div style={{{{maxWidth: "1200px", margin: "0 auto", textAlign: "center"}}}}>
+          <h1 style={{{{fontSize: "2.5rem", fontWeight: "800", marginBottom: "1rem"}}}}>{title}</h1>
+          <p style={{{{fontSize: "1.1rem", marginBottom: "2rem", opacity: 0.85}}}}>{subtitle}</p>
+          <button style={{{{backgroundColor: "{btn_color}", color: "#fff", padding: "0.75rem 2rem", borderRadius: "0.75rem", border: "none", fontWeight: "bold", cursor: "pointer", fontSize: "1rem"}}}}>{btn_text}</button>
+        </div>
+      </section>''')
+
+            elif sec_type in ("navbar", "NAVBAR"):
+                title = config.get("title", page_name)
+                render_elements.append(f'''
+      <nav style={{{{...{style_str}, display: "flex", alignItems: "center", justifyContent: "space-between"}}}}>
+        <span style={{{{fontWeight: "800", fontSize: "1.25rem"}}}}>{title}</span>
+        <div style={{{{display: "flex", gap: "1.5rem"}}}}>
+          <a href="/" style={{{{textDecoration: "none", color: "inherit", opacity: 0.8}}}}>Accueil</a>
+          <a href="#" style={{{{textDecoration: "none", color: "inherit", opacity: 0.8}}}}>À propos</a>
+        </div>
+      </nav>''')
+
+            elif sec_type in ("text-section", "TEXT_SECTION"):
+                content = config.get("content", config.get("text", "Contenu de la section"))
+                heading = config.get("heading", config.get("title", ""))
+                render_elements.append(f'''
+      <section style={style_str}>
+        <div style={{{{maxWidth: "900px", margin: "0 auto"}}}}>
+          {f'<h2 style={{{{fontSize: "2rem", fontWeight: "700", marginBottom: "1rem"}}}}>{heading}</h2>' if heading else ""}
+          <p style={{{{lineHeight: "1.8", fontSize: "1rem"}}}}>{content}</p>
+        </div>
+      </section>''')
+
+            elif sec_type in ("stats-row", "STATS_ROW"):
+                stats = config.get("stats", [
+                    {{"label": "Utilisateurs", "value": "10K+"}},
+                    {{"label": "Projets", "value": "500+"}},
+                    {{"label": "Satisfaction", "value": "98%"}},
+                ])
+                stats_html = "".join([
+                    f'<div style={{{{textAlign: "center", flex: 1}}}}>'
+                    f'<div style={{{{fontSize: "2rem", fontWeight: "800"}}}}>{s.get("value", "—")}</div>'
+                    f'<div style={{{{opacity: 0.7, marginTop: "0.25rem"}}}}>{s.get("label", "")}</div>'
+                    f'</div>'
+                    for s in stats
+                ])
+                render_elements.append(f'''
+      <section style={style_str}>
+        <div style={{{{display: "flex", gap: "2rem", justifyContent: "center", flexWrap: "wrap", maxWidth: "1200px", margin: "0 auto"}}}}>
+          {stats_html}
+        </div>
+      </section>''')
+
+            elif sec_type in ("card-grid", "CARD_GRID"):
+                cards = config.get("cards", [
+                    {{"title": "Feature 1", "description": "Description de la feature 1"}},
+                    {{"title": "Feature 2", "description": "Description de la feature 2"}},
+                    {{"title": "Feature 3", "description": "Description de la feature 3"}},
+                ])
+                cards_html = "".join([
+                    f'<div style={{{{background: "rgba(255,255,255,0.08)", borderRadius: "1rem", padding: "1.5rem", border: "1px solid rgba(255,255,255,0.15)"}}}}>'
+                    f'<h3 style={{{{fontWeight: "700", marginBottom: "0.5rem"}}}}>{c.get("title", "Carte")}</h3>'
+                    f'<p style={{{{opacity: 0.75, fontSize: "0.9rem"}}}}>{c.get("description", "")}</p>'
+                    f'</div>'
+                    for c in cards
+                ])
+                render_elements.append(f'''
+      <section style={style_str}>
+        <div style={{{{maxWidth: "1200px", margin: "0 auto"}}}}>
+          {f'<h2 style={{{{fontSize: "1.75rem", fontWeight: "700", marginBottom: "1.5rem"}}}}>{config.get("title", "")}</h2>' if config.get("title") else ""}
+          <div style={{{{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1.5rem"}}}}>
+            {cards_html}
+          </div>
+        </div>
+      </section>''')
+
+            elif sec_type in ("form", "FORM"):
+                fields = config.get("fields", [{{"label": "Email", "type": "email", "placeholder": "votre@email.com"}}])
+                btn_label = config.get("submitLabel", "Envoyer")
+                fields_html = "".join([
+                    f'<div style={{{{marginBottom: "1rem"}}}}>'
+                    f'<label style={{{{display: "block", marginBottom: "0.25rem", fontWeight: "600", fontSize: "0.85rem"}}}}>{f.get("label", "Champ")}</label>'
+                    f'<input type="{f.get("type", "text")}" placeholder="{f.get("placeholder", "")}" '
+                    f'style={{{{width: "100%", padding: "0.65rem 1rem", borderRadius: "0.5rem", border: "1px solid #d1d5db", fontSize: "1rem"}}}}/>'
+                    f'</div>'
+                    for f in fields
+                ])
+                render_elements.append(f'''
+      <section style={style_str}>
+        <div style={{{{maxWidth: "600px", margin: "0 auto"}}}}>
+          <form style={{{{background: "rgba(255,255,255,0.08)", padding: "2rem", borderRadius: "1rem", border: "1px solid rgba(255,255,255,0.15)"}}}}>
+            {fields_html}
+            <button type="submit" style={{{{width: "100%", padding: "0.75rem", background: "#C4622D", color: "#fff", border: "none", borderRadius: "0.5rem", fontWeight: "bold", cursor: "pointer", fontSize: "1rem"}}}}>{btn_label}</button>
+          </form>
+        </div>
+      </section>''')
+
+            elif sec_type in ("data-table", "DATA_TABLE"):
+                title = config.get("title", "Données")
+                render_elements.append(f'''
+      <section style={style_str}>
+        <div style={{{{maxWidth: "1200px", margin: "0 auto"}}}}>
+          <h2 style={{{{fontSize: "1.5rem", fontWeight: "700", marginBottom: "1rem"}}}}>{title}</h2>
+          <div style={{{{overflowX: "auto", borderRadius: "0.75rem", border: "1px solid rgba(255,255,255,0.15)"}}}}>
+            <table style={{{{width: "100%", borderCollapse: "collapse", fontSize: "0.9rem"}}}}>
+              <thead style={{{{background: "rgba(255,255,255,0.08)"}}}}>
+                <tr>
+                  <th style={{{{padding: "0.75rem 1rem", textAlign: "left"}}}}>Nom</th>
+                  <th style={{{{padding: "0.75rem 1rem", textAlign: "left"}}}}>Détails</th>
+                  <th style={{{{padding: "0.75rem 1rem", textAlign: "right"}}}}>Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{{{padding: "0.75rem 1rem", opacity: 0.6}}}} colSpan="3">Aucune donnée pour le moment</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>''')
+
+            else:
+                # Section générique
+                render_elements.append(f'''
+      <section style={style_str}>
+        <div style={{{{maxWidth: "1200px", margin: "0 auto"}}}}>
+          <p>{config.get("content", config.get("title", sec_type))}</p>
+        </div>
+      </section>''')
+
+        # ── Composants ReactFlow (drag-and-drop) ──
         form_tables = set()
         for comp in comps:
             table_name = table_map.get(comp.connecte_a)
@@ -937,17 +1096,14 @@ export default App;
         if current_form:
             render_elements.append("</form>")
 
-        react_code = f'''{"".join([i + "\\n" for i in imports])}
+        react_code = f'''{"".join([i + "\n" for i in imports])}
 
 export default function {page_name}() {{
-  {"".join([s + "\\n  " for s in state_declarations])}
-  {"".join([e + "\\n  " for e in effects])}
+  {"".join([s + "\n  " for s in state_declarations])}
+  {"".join([e + "\n  " for e in effects])}
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <header className="border-b border-gray-200 pb-4">
-        <h1 className="text-3xl font-bold text-[#1A0E0A] font-serif">{page_name}</h1>
-      </header>
-      {"".join([r + "\\n      " for r in render_elements])}
+    <div>
+      {"".join([r + "\n      " for r in render_elements])}
     </div>
   );
 }}

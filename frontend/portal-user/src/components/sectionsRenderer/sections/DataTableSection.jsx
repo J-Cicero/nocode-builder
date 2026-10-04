@@ -2,8 +2,10 @@ import React from "react";
 import { COLORS, RADIUS, baseStyles } from "../designSystem";
 
 export default function DataTableSection({ section, connectionData }) {
-  const headers = section.config?.headers || ["ID", "Name", "Email", "Status"];
-  const rows = connectionData || section.config?.rows || [
+  const config = section.config || {};
+  const styles = section.styles || {};
+  const headers = config.headers || ["ID", "Name", "Email", "Status"];
+  const rows = connectionData || config.rows || [
     { id: 1, name: "John Doe", email: "john@example.com", status: "Active" },
     { id: 2, name: "Jane Smith", email: "jane@example.com", status: "Active" },
     { id: 3, name: "Bob Johnson", email: "bob@example.com", status: "Inactive" },
@@ -12,11 +14,17 @@ export default function DataTableSection({ section, connectionData }) {
   return (
     <div
       style={{
-        padding: "24px 32px",
-        backgroundColor: COLORS.background,
+        padding: styles.padding || "24px 32px",
+        backgroundColor: styles.backgroundColor || COLORS.background,
         overflowX: "auto",
+        transition: "all 0.2s ease-in-out",
       }}
     >
+      {(section.title || config.title) && (
+        <h2 style={{ fontSize: "20px", fontWeight: "700", color: styles.color || COLORS.dark, marginBottom: "16px" }}>
+          {config.title || section.title}
+        </h2>
+      )}
       <table
         style={{
           width: "100%",

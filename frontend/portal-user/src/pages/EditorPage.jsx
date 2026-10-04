@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import "@xyflow/react/dist/style.css";
 import { BaseSelectionProvider } from "../selection";
+import { SelectionProvider } from "../context/SelectionContext";
 import EditorHeader from "../components/editor/EditorHeader";
 import { useParams } from "react-router-dom";
 import { useProjects } from "../store/projectStore";
@@ -16,7 +17,7 @@ import EnoCGuide from "../components/workspace/EnoCGuide";
 function WorkspaceContent() {
   const { projectId } = useParams();
   const { currentProject, setCurrentProject, projects, activeView } = useProjects();
-  const { pages, loading, hydrate, createPage, deletePage } = useInterface(projectId);
+  const { pages, loading, hydrate, createPage, deletePage, updateSection, deleteSection } = useInterface(projectId);
 
   // Sync project
   useEffect(() => {
@@ -63,7 +64,7 @@ function WorkspaceContent() {
                 createPage={createPage}
               />
             </section>
-            <SideBarModifications />
+            <SideBarModifications pages={pages} updateSection={updateSection} deleteSection={deleteSection} />
           </div>
         )}
 
@@ -82,8 +83,10 @@ function WorkspaceContent() {
 
 export default function EditorPage() {
   return (
-    <BaseSelectionProvider>
-      <WorkspaceContent />
-    </BaseSelectionProvider>
+    <SelectionProvider>
+      <BaseSelectionProvider>
+        <WorkspaceContent />
+      </BaseSelectionProvider>
+    </SelectionProvider>
   );
 }

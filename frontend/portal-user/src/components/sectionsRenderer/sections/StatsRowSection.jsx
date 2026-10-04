@@ -3,6 +3,7 @@ import { COLORS, RADIUS, baseStyles } from "../designSystem";
 
 export default function StatsRowSection({ section }) {
   const config = section.config || {};
+  const styles = section.styles || {};
   const stats = config.stats || [
     { label: "Projects", value: "150" },
     { label: "Users", value: "2.5K" },
@@ -12,11 +13,12 @@ export default function StatsRowSection({ section }) {
   return (
     <div
       style={{
-        padding: "40px 32px",
+        padding: styles.padding || "40px 32px",
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
         gap: "24px",
-        backgroundColor: COLORS.background,
+        backgroundColor: styles.backgroundColor || COLORS.background,
+        transition: "all 0.2s ease-in-out",
       }}
     >
       {(Array.isArray(stats) ? stats : []).map((stat, i) => {

@@ -20,30 +20,45 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 import os
+from dotenv import load_dotenv
 
-SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-vault")  # same signing key as svc-iam, injected via Vault in real envs
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+
+SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-secret-do-not-use-in-prod")
 ALGORITHM = "HS256"
 
 # path-prefix -> upstream base URL. Grows by one line per new svc-*.
-# Defaults match docker-compose service names; override per-env via env vars
-# (Terraform/Helm inject these, never hardcoded in a real deployment).
 ROUTES: dict[str, str] = {
-    "/api/iam": os.getenv("IAM_UPSTREAM", "http://svc-iam:8001"),
-    "/api/nocode": os.getenv("NOCODE_UPSTREAM", "http://svc-nocode-core:8000"),
-    "/api/tenants": os.getenv("TENANT_UPSTREAM", "http://svc-tenant:8003"),
-    "/api/billing": os.getenv("BILLING_UPSTREAM", "http://svc-billing:8004"),
-    "/api/payments": os.getenv("PAYMENT_UPSTREAM", "http://svc-payment-gateway:8005"),
-    "/api/support": os.getenv("CUSTOMER_SERVICE_UPSTREAM", "http://svc-customer-service:8006"),
-    "/api/service-desk": os.getenv("SERVICE_DESK_UPSTREAM", "http://svc-service-desk:8007"),
-    "/api/legal": os.getenv("CONSENT_DSAR_UPSTREAM", "http://svc-consent-dsar:8008"),
+    "/api/iam": os.getenv("IAM_UPSTREAM", "http://localhost:8001"),
+    "/api/nocode": os.getenv("NOCODE_UPSTREAM", "http://localhost:8002"),
+    "/api/tenants": os.getenv("TENANT_UPSTREAM", "http://localhost:8003"),
+    "/api/billing": os.getenv("BILLING_UPSTREAM", "http://localhost:8004"),
+    "/api/payments": os.getenv("PAYMENT_UPSTREAM", "http://localhost:8005"),
+    "/api/support": os.getenv("CUSTOMER_SERVICE_UPSTREAM", "http://localhost:8006"),
+    "/api/service-desk": os.getenv("SERVICE_DESK_UPSTREAM", "http://localhost:8007"),
+    "/api/legal": os.getenv("CONSENT_DSAR_UPSTREAM", "http://localhost:8008"),
 }
 
 # Paths that don't require a valid access token (registration, login itself).
-PUBLIC_PATHS = {"/api/iam/auth/login", "/api/iam/auth/register", "/api/iam/auth/refresh", "/api/iam/auth/mfa/verify"}
+PUBLIC_PATHS = {
+    "/api/iam/auth/login",
+    "/api/iam/auth/register",
+    "/api/iam/auth/refresh",
+    "/api/iam/auth/mfa/verify",
+}
 
 limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
 app = FastAPI(title="svc-api-gateway")
 app.state.limiter = limiter
+
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -89,7 +104,7 @@ async def proxy(full_path: str, request: Request):
     headers["x-request-id"] = request_id
     headers.pop("host", None)
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         start = time.monotonic()
         resp = await client.request(request.method, url, params=request.query_params, headers=headers, content=body)
         duration_ms = (time.monotonic() - start) * 1000

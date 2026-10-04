@@ -3,6 +3,7 @@ import { COLORS, RADIUS, baseStyles } from "../designSystem";
 
 export default function CardGridSection({ section, connectionData }) {
   const config = section.config || {};
+  const styles = section.styles || {};
   const rawCards = connectionData || config.cards || [];
   const cards = Array.isArray(rawCards) ? rawCards : Object.values(rawCards || {});
 
@@ -20,13 +21,14 @@ export default function CardGridSection({ section, connectionData }) {
   return (
     <div
       style={{
-        padding: "32px 24px",
-        backgroundColor: COLORS.background,
+        padding: styles.padding || "32px 24px",
+        backgroundColor: styles.backgroundColor || COLORS.background,
+        transition: "all 0.2s ease-in-out",
       }}
     >
-      {section.title && (
-        <h2 style={{ fontSize: "20px", fontWeight: "700", color: COLORS.dark, marginBottom: "20px" }}>
-          {section.title}
+      {(section.title || config.title) && (
+        <h2 style={{ fontSize: "20px", fontWeight: "700", color: styles.color || COLORS.dark, marginBottom: "20px" }}>
+          {config.title || section.title}
         </h2>
       )}
 

@@ -14,6 +14,7 @@ from app.modules.interface_builder.schema import (
     ComposantResponse,
     InterfaceResponse,
     SectionCreate,
+    SectionUpdate,
     SectionResponse,
 )
 
@@ -199,3 +200,31 @@ async def create_section(
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.create_section(page_id, data)
+
+
+@router.patch(
+    "/sections/{section_id}",
+    response_model=SectionResponse,
+    summary="Mettre à jour une section",
+)
+async def update_section(
+    section_id: UUID,
+    data: SectionUpdate,
+    current_user: User = Depends(get_current_user),
+    service: InterfaceService = Depends(get_interface_service),
+):
+    return await service.update_section(section_id, data)
+
+
+@router.delete(
+    "/sections/{section_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Supprimer une section",
+)
+async def delete_section(
+    section_id: UUID,
+    current_user: User = Depends(get_current_user),
+    service: InterfaceService = Depends(get_interface_service),
+):
+    await service.delete_section(section_id)
+

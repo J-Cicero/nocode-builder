@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings
 
 
@@ -14,7 +15,8 @@ class Settings(BaseSettings):
     MFA_STEP_UP_TOKEN_EXPIRE_MINUTES: int = 5         # short-lived token proving "password verified, MFA pending"
 
     class Config:
-        env_file = ".env"
+        env_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
+        extra = "ignore"
 
 
 settings = Settings()

@@ -3,19 +3,21 @@ import { COLORS, RADIUS, baseStyles } from "../designSystem";
 
 export default function FormSection({ section }) {
   const config = section.config || {};
+  const styles = section.styles || {};
   const fields = config.fields || [
     { label: "Name", type: "text", placeholder: "Your name" },
     { label: "Email", type: "email", placeholder: "your@email.com" },
     { label: "Message", type: "textarea", placeholder: "Your message" },
   ];
-  const buttonText = config.buttonText || "Submit";
-  const title = section.title || config.title || "Contact Form";
+  const buttonText = config.buttonText || config.submitText || "Submit";
+  const title = config.title || section.title || "Contact Form";
 
   return (
     <div
       style={{
-        padding: "40px 32px",
-        backgroundColor: COLORS.background,
+        padding: styles.padding || "40px 32px",
+        backgroundColor: styles.backgroundColor || COLORS.background,
+        transition: "all 0.2s ease-in-out",
       }}
     >
       <div

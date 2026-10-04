@@ -11,6 +11,8 @@ export const interfaceApi = {
   reorderComponents: (pageId, payload) => axios.post(`/interface/pages/${pageId}/composants/reorder`, payload),
   getPageSections: (pageId) => axios.get(`/interface/pages/${pageId}/sections`),
   createSection: (pageId, payload) => axios.post(`/interface/pages/${pageId}/sections`, payload),
+  updateSection: (sectionId, payload) => axios.patch(`/interface/sections/${sectionId}`, payload),
+  deleteSection: (sectionId) => axios.delete(`/interface/sections/${sectionId}`),
 };
 
 export default interfaceApi;

@@ -362,3 +362,32 @@ class InterfaceService:
         )
         return SectionResponse.from_orm(section)
 
+    async def update_section(self, section_id: UUID, data) -> SectionResponse:
+        section = await self.section_repo.get_by_tracking_id(section_id)
+        if not section:
+            raise HTTPException(status_code=404, detail="Section introuvable")
+
+        updates = {}
+        if data.type is not None:
+            updates["type"] = data.type.value if hasattr(data.type, "value") else str(data.type)
+        if data.ordre is not None:
+            updates["ordre"] = data.ordre
+        if data.title is not None:
+            updates["title"] = data.title
+        if data.config is not None:
+            updates["config"] = data.config
+        if data.connecte_a is not None:
+            updates["connecte_a"] = data.connecte_a
+        if data.styles is not None:
+            updates["styles"] = data.styles
+
+        updated = await self.section_repo.update(section, updates)
+        return SectionResponse.from_orm(updated)
+
+    async def delete_section(self, section_id: UUID) -> None:
+        section = await self.section_repo.get_by_tracking_id(section_id)
+        if not section:
+            raise HTTPException(status_code=404, detail="Section introuvable")
+        await self.section_repo.delete(section)
+
+

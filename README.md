@@ -1,10 +1,58 @@
-# Platform — Phase 1 (Foundation)
+# Platform — NoCode Builder & Microservices Platform
 
-Real, runnable code for the first slice of `PLATFORM_ARCHITECTURE_BLUEPRINT.md`:
-**svc-iam**, **svc-api-gateway**, **svc-nocode-core** (your existing monolith,
-now identity-bridged), **host-shell**, and **portal-user** (your existing
-frontend, now SSO'd). Everything has been tested — not just written, actually
-run — except where noted below.
+---
+
+## 🚀 Guide de Démarrage Rapide (Commandes Locales)
+
+### 1. Démarrer les Bases de Données (PostgreSQL)
+Les bases de données tournent sous Docker avec leurs ports respectifs :
+```bash
+# Lancement des conteneurs DB IAM (5433) et Nocode Core (5434)
+docker compose -f infra/docker-compose.yml up -d svc-iam-db svc-nocode-core-db
+```
+
+### 2. Démarrer les Microservices Backend
+Ouvrir des terminaux distincts (ou exécuter en tâche de fond) :
+
+```bash
+# Service IAM (Authentification & Sessions) — Port 8001
+cd backend/svc-iam
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8001
+
+# Service NoCode Core (Moteur Builder, IA EnoC, Projets) — Port 8002
+cd backend/svc-nocode-core
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8002
+
+# Service API Gateway (Point d'Entrée Unique & Reverse Proxy) — Port 8000
+cd backend/svc-api-gateway
+python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+### 3. Démarrer le Frontend (Portal User)
+```bash
+cd frontend/portal-user
+npm start
+# L'application s'ouvre sur http://localhost:3000
+```
+
+### 4. Compte de Test & Authentification
+- **URL de connexion** : [http://localhost:3000/auth/login](http://localhost:3000/auth/login)
+- **Email** : `test@enoc.com`
+- **Mot de passe** : `Password123!`
+
+---
+
+## 📋 Statuts des Projets : Public vs Privé
+
+Dans l'application, chaque projet possède un statut et un indicateur de visibilité `is_public` :
+
+| Propriété | Projet Privé (`is_public = false`) | Projet Public (`is_public = true`) |
+| :--- | :--- | :--- |
+| **Accès & Droits** | Strictement réservé à son créateur (`owner_id`). Toute requête non authentifiée est rejetée (HTTP 401/403). | Consultable et prévisualisable sans compte par n'importe quel visiteur disposant du lien. |
+| **Génération & Code** | Le moteur de génération FastAPI + React fonctionne **exactement de la même façon**. | Même moteur d'export et de compilation. |
+| **Cas d'usage** | Conception confidentielle, travail en cours, applications internes d'entreprise. | Modèles partagés, vitrines publiques, démonstrations clients, landing pages en ligne. |
+
+---
 
 ## What's included
 

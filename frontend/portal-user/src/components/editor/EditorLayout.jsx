@@ -11,7 +11,7 @@ import { useProjects } from "../../store/projectStore";
  * Canvas redimensionnable verticalement avec navigation libre (zoom/déplacement)
  */
 export default function EditorLayout({ projectId }) {
-  const { pages, loading, error, hydrate } = useInterface(projectId);
+  const { pages, loading, error, hydrate, createPage, deletePage, updateSection, deleteSection } = useInterface(projectId);
   const { setCurrentProject, projects } = useProjects();
   
   // État pour la hauteur du canvas (hauteur flexible de la page)
@@ -78,7 +78,7 @@ export default function EditorLayout({ projectId }) {
       </section>
 
       {/* Sidebar droite pour les modifications */}
-      <SideBarModifications />
+      <SideBarModifications pages={pages} updateSection={updateSection} deleteSection={deleteSection} />
     </div>
   );
 }

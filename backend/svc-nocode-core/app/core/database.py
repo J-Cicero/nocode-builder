@@ -1,4 +1,4 @@
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base
 
 from app.core.config import settings
@@ -9,13 +9,24 @@ engine = create_async_engine(
     future=True,
 )
 
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False,
-)
+try:
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    AsyncSessionLocal = async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+except ImportError:
+    from sqlalchemy.orm import sessionmaker
+    AsyncSessionLocal = sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
 
 Base = declarative_base()
 

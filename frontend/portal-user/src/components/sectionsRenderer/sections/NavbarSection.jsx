@@ -3,22 +3,24 @@ import { COLORS } from "../designSystem";
 
 export default function NavbarSection({ section }) {
   const config = section.config || {};
+  const styles = section.styles || {};
   const links = config.links || ["Home", "About", "Services", "Contact"];
-  const title = section.title || config.title || "Logo";
+  const title = config.title || section.title || "Logo";
 
   return (
     <nav
       style={{
-        backgroundColor: COLORS.darkNav,
-        padding: "16px 32px",
+        backgroundColor: styles.backgroundColor || COLORS.darkNav,
+        padding: styles.padding || "16px 32px",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        transition: "all 0.2s ease-in-out",
       }}
     >
       <div
         style={{
-          color: COLORS.white,
+          color: styles.color || COLORS.white,
           fontSize: "18px",
           fontWeight: "bold",
         }}

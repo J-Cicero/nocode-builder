@@ -94,6 +94,29 @@ export function useInterface(projectId) {
     );
   }, []);
 
+  const updateSection = useCallback(async (sectionId, updates) => {
+    const { data } = await interfaceApi.updateSection(sectionId, updates);
+    setPages((prev) =>
+      prev.map((page) => ({
+        ...page,
+        sections: (page.sections || []).map((s) =>
+          s.tracking_id === sectionId ? { ...s, ...data } : s
+        ),
+      }))
+    );
+    return data;
+  }, []);
+
+  const deleteSection = useCallback(async (sectionId) => {
+    await interfaceApi.deleteSection(sectionId);
+    setPages((prev) =>
+      prev.map((page) => ({
+        ...page,
+        sections: (page.sections || []).filter((s) => s.tracking_id !== sectionId),
+      }))
+    );
+  }, []);
+
   return {
     pages,
     loading,
@@ -105,6 +128,8 @@ export function useInterface(projectId) {
     createComponent,
     updateComponent,
     deleteComponent,
+    updateSection,
+    deleteSection,
     setPages,
   };
 }
