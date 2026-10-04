@@ -34,6 +34,7 @@ class Identity:
     tracking_id: UUID
     role: str | None = None
     tenant_id: str | None = None
+    plan: str | None = None
 
 
 def get_current_identity(token: str = Depends(oauth2_scheme)) -> Identity:
@@ -47,4 +48,5 @@ def get_current_identity(token: str = Depends(oauth2_scheme)) -> Identity:
         tracking_id=UUID(payload["sub"]),
         role=payload.get("role"),
         tenant_id=payload.get("tenant_id"),
+        plan=payload.get("plan"),
     )

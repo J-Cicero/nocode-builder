@@ -34,11 +34,17 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # ─── AI Engine (Mistral AI / OpenAI Compatible) ──────────────────────────────
+    # ─── AI Engine ───────────────────────────────────────────────────────────────
+    # Les fournisseurs et modèles d'IA sont gérés dynamiquement par l'administrateur
+    # (tables ai_providers / ai_models). Les variables AI_* ci-dessous ne servent que
+    # de repli optionnel si le catalogue est vide. Ne JAMAIS mettre de clé dans le code.
     AI_PROVIDER: str = "mistral"
-    AI_API_KEY: str = "Qee9f37Fr4ZTqU2FyKUvXV6qWmbdYQ8x"
+    AI_API_KEY: str = ""
     AI_BASE_URL: str = "https://api.mistral.ai/v1"
     AI_MODEL: str = "mistral-small-latest"
+    # Clé Fernet servant à chiffrer les clés API stockées en base.
+    # Générer avec : python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    AI_KEYS_ENCRYPTION_KEY: str = ""
 
     # ─── Deployment Engine ───────────────────────────────────────────────────────
     VERCEL_TOKEN: str = ""

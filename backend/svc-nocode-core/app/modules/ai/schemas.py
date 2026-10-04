@@ -7,6 +7,7 @@ from datetime import datetime
 class MessageCreate(BaseModel):
     content: str = Field(..., min_length=1, max_length=4000,
                         description="Message from user to the AI assistant")
+    model_id: Optional[UUID] = Field(None, description="Modèle d'IA choisi dans le catalogue (défaut si omis)")
 
 
 class MessageResponse(BaseModel):
@@ -31,6 +32,7 @@ class ConversationResponse(BaseModel):
 class SchemaGenerationRequest(BaseModel):
     description: str = Field(..., min_length=10, max_length=5000,
                             description="Natural language description of the application to build (French or English)")
+    model_id: Optional[UUID] = Field(None, description="Modèle d'IA choisi dans le catalogue (défaut si omis)")
 
 
 class GeneratedField(BaseModel):
@@ -64,6 +66,7 @@ class SchemaGenerationResponse(BaseModel):
 class InterfaceGenerationRequest(BaseModel):
     description: str = Field(..., min_length=10, max_length=5000,
                             description="Natural language description of the application interface to build")
+    model_id: Optional[UUID] = Field(None, description="Modèle d'IA choisi dans le catalogue (défaut si omis)")
 
 
 class InterfaceGenerationResponse(BaseModel):
@@ -77,6 +80,7 @@ class InterfaceGenerationResponse(BaseModel):
 class AppGenerationRequest(BaseModel):
     description: str = Field(..., min_length=10, max_length=5000,
                             description="Description globale de l'application (fonctionnel, données, écrans, automatisations)")
+    model_id: Optional[UUID] = Field(None, description="Modèle d'IA choisi dans le catalogue (défaut si omis)")
 
 
 class AppGenerationResponse(BaseModel):

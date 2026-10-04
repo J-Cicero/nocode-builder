@@ -21,6 +21,16 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 NoCode Builder API starting up...")
+    # Tables du catalogue d'IA : créées si absentes, sans toucher aux tables existantes.
+    try:
+        from app.core.database import Base
+        from app.modules.ai.models import AIProvider, AIModel
+        async with engine.begin() as conn:
+            await conn.run_sync(
+                lambda c: Base.metadata.create_all(c, tables=[AIProvider.__table__, AIModel.__table__])
+            )
+    except Exception as e:
+        logger.error(f"Impossible de préparer les tables du catalogue d'IA: {e}")
     yield
     logger.info("🛑 NoCode Builder API shutting down...")
     await engine.dispose()
@@ -54,6 +64,7 @@ modules_to_load = [
     ("app.modules.auth.router", "auth_router", "/api", ["Auth"]),
     ("app.modules.projects.router", "projects_router_module", "/api", [" Projets"]),
     ("app.modules.ai.router", "ai_router", "/api", ["AI Assistant"]),
+    ("app.modules.ai.catalog_router", "ai_catalog_router", "/api", ["AI Catalogue"]),
     ("app.modules.schema.router", "schema_router", "/api", ["Constructeur de Schéma"]),
     ("app.modules.data_engine.router", "data_engine_router", "/api", ["Moteur de Données"]),
     ("app.modules.interface_builder.router", "interface_builder_router", "/api", ["Interface Builder"]),

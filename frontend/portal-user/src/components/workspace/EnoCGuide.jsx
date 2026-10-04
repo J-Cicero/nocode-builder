@@ -1,17 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, X, Send, Bot, Trash2, Database, Layout, Rocket } from 'lucide-react';
+import { 
+  Sparkles, X, Send, Bot, Trash2, Database, Layout, Rocket,
+  ChevronDown, Lock, Check, Zap, ArrowRight
+} from 'lucide-react';
 import aiApi from '../../api/aiApi';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 
 export default function EnoCGuide() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [generationMode, setGenerationMode] = useState(null);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModelId, setSelectedModelId] = useState(null);
+  const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
+  const [upgradeNotice, setUpgradeNotice] = useState(null);
   const scrollRef = useRef(null);
   const textareaRef = useRef(null);
+
+  useEffect(() => {
+    loadModels();
+  }, []);
+
+  const loadModels = async () => {
+    try {
+      const { data } = await aiApi.getModels();
+      if (Array.isArray(data) && data.length > 0) {
+        setAvailableModels(data);
+        const def = data.find(m => m.is_default && !m.locked) || data.find(m => !m.locked) || data[0];
+        if (def) setSelectedModelId(def.id || def.tracking_id);
+      }
+    } catch (err) {
+      console.error("Erreur lors du chargement des modèles d'IA:", err);
+    }
+  };
 
   useEffect(() => {
     if (projectId) {
@@ -54,6 +79,18 @@ export default function EnoCGuide() {
     }
   };
 
+  const handleSelectModel = (model) => {
+    if (model.locked) {
+      setUpgradeNotice(model);
+      setIsModelSelectorOpen(false);
+      return;
+    }
+    setSelectedModelId(model.id || model.tracking_id);
+    setIsModelSelectorOpen(false);
+  };
+
+  const currentModel = availableModels.find(m => (m.id || m.tracking_id) === selectedModelId) || availableModels[0];
+
   const handleModeSelection = (mode) => {
     setGenerationMode(mode);
     let promptMsg = '';
@@ -82,7 +119,7 @@ export default function EnoCGuide() {
     }, 4000);
 
     try {
-      await aiApi.generateApp(projectId, { description });
+      await aiApi.generateApp(projectId, { description, model_id: selectedModelId });
       clearInterval(interval);
       setMessages(prev => prev.map(m => m.id === loadingId ? { ...m, content: "✅ Application générée ! L'éditeur va s'actualiser." } : m));
       window.dispatchEvent(new CustomEvent('enoc:refresh-editor'));
@@ -117,23 +154,26 @@ export default function EnoCGuide() {
       }
 
       if (generationMode === 'app') {
-        const { data } = await aiApi.chat(projectId, { content: 'Je veux créer cette application : ' + currentInput + '. Peux-tu me proposer un schéma de base de données et attendre ma confirmation avant de générer ?' });
+        const { data } = await aiApi.chat(projectId, { 
+          content: 'Je veux créer cette application : ' + currentInput + '. Peux-tu me proposer un schéma de base de données et attendre ma confirmation avant de générer ?',
+          model_id: selectedModelId 
+        });
         setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
         setGenerationMode(null);
       } else if (generationMode === 'schema') {
         setMessages(prev => [...prev, { role: 'assistant', content: 'Génération de la base de données en cours...' }]);
-        await aiApi.generateSchema(projectId, { description: currentInput });
+        await aiApi.generateSchema(projectId, { description: currentInput, model_id: selectedModelId });
         setMessages(prev => [...prev, { role: 'assistant', content: "✅ Les tables ont été créées avec succès ! Vous pouvez les voir dans l'onglet Données." }]);
         window.dispatchEvent(new CustomEvent('enoc:refresh-editor'));
         setGenerationMode(null);
       } else if (generationMode === 'interface') {
         setMessages(prev => [...prev, { role: 'assistant', content: "Dessin de l'interface en cours..." }]);
-        await aiApi.generateInterface(projectId, { description: currentInput });
+        await aiApi.generateInterface(projectId, { description: currentInput, model_id: selectedModelId });
         setMessages(prev => [...prev, { role: 'assistant', content: "✅ L'interface a été générée avec succès ! Allez voir le canevas." }]);
         window.dispatchEvent(new CustomEvent('enoc:refresh-editor'));
         setGenerationMode(null);
       } else {
-        const { data } = await aiApi.chat(projectId, { content: userMessage.content });
+        const { data } = await aiApi.chat(projectId, { content: userMessage.content, model_id: selectedModelId });
         setMessages(prev => [...prev, { role: 'assistant', content: data.content }]);
         // Refresh the editor after any chat response (AI may have called tools like generate_schema/interface)
         window.dispatchEvent(new CustomEvent('enoc:refresh-editor'));
@@ -246,6 +286,205 @@ export default function EnoCGuide() {
             <Trash2 size={16} />
           </button>
         </div>
+
+        {/* ── Sélecteur de Modèle d'IA (Palette dynamique) ── */}
+        <div style={{
+          padding: '8px 16px',
+          background: '#24140E',
+          borderBottom: '1px solid #381E15',
+          position: 'relative',
+          zIndex: 20,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+              <Zap size={13} color="#D4A017" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '11px', color: '#C8AA96', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                Moteur IA :
+              </span>
+            </div>
+            <button
+              onClick={() => setIsModelSelectorOpen(!isModelSelectorOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: '#351F17',
+                border: '1px solid #4D2D22',
+                borderRadius: '8px',
+                padding: '4px 10px',
+                color: '#FBF4E9',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                maxWidth: '240px',
+              }}
+              title="Changer de modèle d'IA"
+            >
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {currentModel ? currentModel.display_name : 'Chargement...'}
+              </span>
+              <ChevronDown size={13} color="#C8AA96" style={{ transform: isModelSelectorOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }} />
+            </button>
+          </div>
+
+          {/* Menu déroulant de la palette */}
+          {isModelSelectorOpen && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: '8px',
+              right: '8px',
+              marginTop: '6px',
+              background: '#1A0E0A',
+              border: '1px solid #4D2D22',
+              borderRadius: '12px',
+              boxShadow: '0 16px 36px rgba(0,0,0,0.6)',
+              overflow: 'hidden',
+              zIndex: 50,
+              maxHeight: '340px',
+              overflowY: 'auto',
+            }}>
+              <div style={{ padding: '8px 12px', borderBottom: '1px solid #2F1B13', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#A08060', fontWeight: 700 }}>
+                Palette de Modèles Disponibles
+              </div>
+              {availableModels.map((m) => {
+                const isSelected = (m.id || m.tracking_id) === selectedModelId;
+                return (
+                  <div
+                    key={m.id || m.tracking_id}
+                    onClick={() => handleSelectModel(m)}
+                    style={{
+                      padding: '10px 12px',
+                      borderBottom: '1px solid #261610',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      background: isSelected ? '#2E1911' : 'transparent',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = '#28150E'; }}
+                    onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: m.locked ? '#8C7A70' : '#FFF' }}>
+                          {m.display_name}
+                        </span>
+                        <span style={{ fontSize: '9px', background: '#3A2016', color: '#D4A017', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                          {m.provider_label}
+                        </span>
+                        {m.is_default && (
+                          <span style={{ fontSize: '9px', background: '#164E63', color: '#67E8F9', padding: '1px 5px', borderRadius: '4px', fontWeight: 600 }}>
+                            Défaut
+                          </span>
+                        )}
+                      </div>
+                      {m.description && (
+                        <div style={{ fontSize: '10px', color: '#8C7A70', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {m.description}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      {m.locked ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', padding: '2px 6px', background: '#451A03', color: '#FDBA74', border: '1px solid #78350F', borderRadius: '6px', fontSize: '10px', fontWeight: 700 }}>
+                          <Lock size={10} />
+                          PRO
+                        </span>
+                      ) : isSelected ? (
+                        <span style={{ color: '#22C55E' }}>
+                          <Check size={14} />
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Modal d'upgrade si modèle verrouillé sélectionné */}
+        {upgradeNotice && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'rgba(10,5,3,0.75)',
+            backdropFilter: 'blur(3px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px',
+            zIndex: 100,
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '20px',
+              padding: '24px',
+              maxWidth: '360px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+              textAlign: 'center',
+              border: '1px solid #E8D9C4',
+            }}>
+              <div style={{ width: '48px', height: '48px', background: '#FEF3C7', color: '#D97706', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Lock size={24} />
+              </div>
+              <h3 style={{ fontSize: '16px', fontWeight: 800, color: '#1A0E0A', marginBottom: '8px' }}>
+                Modèle Réservé (Pro)
+              </h3>
+              <p style={{ fontSize: '12px', color: '#7A5C44', lineHeight: '1.5', marginBottom: '20px' }}>
+                Le modèle <strong>{upgradeNotice.display_name}</strong> ({upgradeNotice.provider_label}) est accessible avec le forfait <strong>Pro</strong> ou <strong>Enterprise</strong>.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  onClick={() => {
+                    setUpgradeNotice(null);
+                    navigate('/app/upgrade');
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    background: 'linear-gradient(135deg, #C4622D, #D4A017)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '12px',
+                    fontWeight: 700,
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span>Passer au forfait Pro</span>
+                  <ArrowRight size={14} />
+                </button>
+                <button
+                  onClick={() => setUpgradeNotice(null)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    background: 'transparent',
+                    color: '#7A5C44',
+                    border: '1px solid #E8D9C4',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Continuer avec le modèle standard
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         <div

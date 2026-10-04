@@ -9,6 +9,7 @@ import time
 
 from app.core.config import settings
 from app.modules.ai.models import Conversation, Message
+from app.modules.ai.catalog_service import AICatalogService
 from app.modules.ai.repository import ConversationRepository, MessageRepository
 from app.modules.ai.schemas import (
     MessageCreate,
@@ -45,13 +46,36 @@ class AIService:
         self.page_repo = PageRepository(db)
         self.composant_repo = ComposantRepository(db)
         self.section_repo = SectionRepository(db)
+        # Repli (catalogue vide) : configuration d'environnement. Le client réel est
+        # choisi à chaque requête depuis le catalogue géré par l'administrateur.
+        self._env_configured = bool(settings.AI_API_KEY)
         self.ai_client = AsyncOpenAI(
-            api_key=settings.AI_API_KEY,
+            api_key=settings.AI_API_KEY or "not-configured",
             base_url=settings.AI_BASE_URL,
             timeout=60.0,
             max_retries=1,
         )
         self.model = settings.AI_MODEL
+        self._model_selected = False
+        self.catalog = AICatalogService(db)
+
+    async def _select_model(self, model_ref, current_user) -> None:
+        """Choisit le client/modèle d'IA : modèle demandé, sinon modèle par défaut
+        accessible avec l'abonnement. Une sélection explicite n'est pas écrasée par
+        les appels internes (ex. generate_app -> generate_schema)."""
+        if self._model_selected and model_ref is None:
+            return
+        resolved = await self.catalog.resolve(
+            model_ref, getattr(current_user, "plan", None), getattr(current_user, "role", None)
+        )
+        if resolved:
+            self.ai_client, self.model = resolved.client, resolved.model_id
+        elif not self._env_configured:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Aucune IA n'est configurée pour le moment. Contactez l'administrateur.",
+            )
+        self._model_selected = True
 
     @staticmethod
     def _clean_json_response(raw_content: str) -> dict:
@@ -158,6 +182,7 @@ class AIService:
         return interface_json
 
     async def chat(self, project_id: UUID, data: MessageCreate, current_user: User) -> MessageResponse:
+        await self._select_model(data.model_id, current_user)
         start_time = time.time()
         print(f"🚀 [AI CHAT] Starting request for project {project_id}...")
         project_repo = ProjectRepository(self.db)
@@ -230,6 +255,7 @@ class AIService:
         return MessageResponse.model_validate(ai_message)
 
     async def generate_schema(self, project_id: UUID, data: SchemaGenerationRequest, current_user: User) -> SchemaGenerationResponse:
+        await self._select_model(data.model_id, current_user)
         project_repo = ProjectRepository(self.db)
         project = await project_repo.get_by_tracking_id(project_id)
         if not project:
@@ -319,6 +345,7 @@ class AIService:
         return SchemaGenerationResponse(success=True, message=f"Successfully created {len(table_mapping)} tables and {relations_count} relations", tables_created=table_names, relations_created=relations_count, raw_schema=schema_json)
 
     async def generate_interface(self, project_id: UUID, data: InterfaceGenerationRequest, current_user: User, context_tables: list[str] = None) -> InterfaceGenerationResponse:
+        await self._select_model(data.model_id, current_user)
         project_repo = ProjectRepository(self.db)
         project = await project_repo.get_by_tracking_id(project_id)
         if not project:
@@ -481,6 +508,7 @@ class AIService:
         )
 
     async def generate_app(self, project_id: UUID, data: AppGenerationRequest, current_user: User) -> AppGenerationResponse:
+        await self._select_model(data.model_id, current_user)
         schema_resp = await self.generate_schema(project_id, SchemaGenerationRequest(description=data.description), current_user)
         interface_resp = await self.generate_interface(project_id, InterfaceGenerationRequest(description=data.description), current_user, context_tables=schema_resp.tables_created)
         workflows_count = await self.generate_workflows(project_id, data.description, current_user)
