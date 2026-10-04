@@ -517,10 +517,11 @@ python-multipart==0.0.6
         os.makedirs(f"{front_dir}/src/context", exist_ok=True)
         
         # package.json
+        # package.json avec Tailwind & Lucide
         package_json = '''{
   "name": "frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -529,21 +530,56 @@ python-multipart==0.0.6
   },
   "dependencies": {
     "axios": "^1.6.2",
+    "lucide-react": "^0.344.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.18",
+    "postcss": "^8.4.35",
+    "tailwindcss": "^3.4.1",
     "vite": "^5.0.0"
   }
 }'''
         self._write_file(f"{front_dir}/package.json", package_json)
 
+        # tailwind.config.js
+        tailwind_config = '''/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          DEFAULT: "#C4622D",
+          hover: "#A04E24",
+          light: "#FBF4E9",
+        },
+        secondary: "#D4A017",
+        dark: "#1A0E0A",
+      }
+    },
+  },
+  plugins: [],
+}'''
+        self._write_file(f"{front_dir}/tailwind.config.js", tailwind_config)
+
+        # postcss.config.js
+        postcss_config = '''export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}'''
+        self._write_file(f"{front_dir}/postcss.config.js", postcss_config)
+
         # .env.example pour le frontend
         frontend_env = '''# URL de base du backend API
-# Par défaut, le frontend essaie de charger la config depuis /config
-# Si /config n'est pas disponible, utilise cette URL comme fallback
 VITE_API_URL=http://localhost:8000/api
 '''
         self._write_file(f"{front_dir}/.env.example", frontend_env)
@@ -559,13 +595,16 @@ export default defineConfig({
 
         # index.html
         index_html = '''<!doctype html>
-<html lang="en">
+<html lang="fr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Application Générée</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
-  <body>
+  <body class="bg-[#F8F9FA] text-[#1A0E0A] font-sans antialiased min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
@@ -588,49 +627,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )'''
         self._write_file(f"{front_dir}/src/main.jsx", main_jsx)
 
-        # src/index.css
-        index_css = ''':root {
-  --primary: #C4622D;
-  --bg: #FBF4E9;
-  --text: #1A0E0A;
-}
+        # src/index.css avec Tailwind directives
+        index_css = '''@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 body {
-  margin: 0;
-  font-family: system-ui, -apple-system, sans-serif;
-  background-color: var(--bg);
-  color: var(--text);
-}
-* {
-  box-sizing: border-box;
-}
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 2rem;
-}
-.btn {
-  background-color: var(--primary);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.5rem;
-  cursor: pointer;
-  font-weight: bold;
-}
-.input {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 0.5rem;
-  margin-bottom: 1rem;
-}
-.card {
-  background: white;
-  padding: 1.5rem;
-  border-radius: 1rem;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-  margin-bottom: 1rem;
-  border: 1px solid #f3f4f6;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
 }
 '''
         self._write_file(f"{front_dir}/src/index.css", index_css)
@@ -846,24 +849,28 @@ export default App;
                 current_form = None
 
             if ui_type == "title":
-                render_elements.append(f"<h2>{props.get('text', 'Titre')}</h2>")
+                render_elements.append(f'<h2 className="text-2xl font-bold text-[#1A0E0A] font-serif mb-4">{props.get("text", "Titre")}</h2>')
             elif ui_type == "text":
-                render_elements.append(f"<p>{props.get('text', 'Texte')}</p>")
+                render_elements.append(f'<p className="text-gray-600 text-sm leading-relaxed mb-4">{props.get("text", "Texte")}</p>')
             elif ui_type in ["input", "textarea"]:
                 if table_name:
                     field_name = props.get("label", "champ").lower().replace(" ", "_").replace("'", "")
                     render_elements.append(f'''
-        <div style={{marginBottom: "1rem"}}>
-          <label style={{display: "block", marginBottom: "0.5rem"}}>{props.get('label', 'Champ')}</label>
-          <input className="input" placeholder="{props.get('placeholder', '')}" onChange={{e => setForm{self._capitalize(table_name)}({{...form{self._capitalize(table_name)}, {field_name}: e.target.value}})}} required />
+        <div className="space-y-1.5 mb-4">
+          <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">{props.get('label', 'Champ')}</label>
+          <input className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none text-sm transition-all" placeholder="{props.get('placeholder', '')}" onChange={{e => setForm{self._capitalize(table_name)}({{...form{self._capitalize(table_name)}, {field_name}: e.target.value}})}} required />
         </div>''')
                 else:
-                    render_elements.append(f"<input className='input' placeholder='{props.get('placeholder', 'Input')}' />")
+                    render_elements.append(f'''
+        <div className="space-y-1.5 mb-4">
+          <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">{props.get('label', 'Champ')}</label>
+          <input className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none text-sm transition-all" placeholder="{props.get('placeholder', '')}" />
+        </div>''')
             elif ui_type == "button":
                 if current_form:
-                    render_elements.append(f"<button type='submit' className='btn' style={{width: '100%'}}>{props.get('label', 'Valider')}</button>")
+                    render_elements.append(f'''<button type="submit" className="w-full py-3 px-6 bg-[#C4622D] hover:bg-[#A04E24] text-white font-bold rounded-xl shadow-md shadow-[#C4622D]/20 transition-all cursor-pointer">{props.get("label", "Valider")}</button>''')
                 else:
-                    render_elements.append(f"<button className='btn'>{props.get('label', 'Bouton')}</button>")
+                    render_elements.append(f'''<button className="py-2.5 px-6 bg-[#C4622D] hover:bg-[#A04E24] text-white font-bold rounded-xl shadow-md shadow-[#C4622D]/20 transition-all cursor-pointer">{props.get("label", "Bouton")}</button>''')
             elif ui_type == "dataList":
                 if table_name:
                     state_name = f"{table_name}List"
@@ -874,25 +881,58 @@ export default App;
   }}, []);
 ''')
                     render_elements.append(f'''
-      <div className="card">
-        <h3>{props.get('title', table_name)}</h3>
-        <table style={{width: '100%', textAlign: 'left', marginTop: '1rem'}}>
-          <thead><tr><th style={{paddingBottom: '1rem'}}>Données enregistrées</th></tr></thead>
-          <tbody>
-            {{{state_name}.map((item, idx) => (
-              <tr key={{idx}}><td style={{padding: '0.75rem 0', borderBottom: '1px solid #eee'}}>{{JSON.stringify(item)}}</td></tr>
-            ))}}
-          </tbody>
-        </table>
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden mb-6">
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+          <h3 className="font-bold text-base text-[#1A0E0A]">{props.get('title', table_name.capitalize())}</h3>
+          <span className="text-xs font-semibold px-2.5 py-1 bg-[#FBF4E9] text-[#C4622D] rounded-full border border-[#E8D9C4]">
+            {{{state_name}.length}} enregistrements
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-sm">
+            <thead className="bg-[#FBF4E9]/50 text-xs text-[#7A5C44] uppercase font-bold tracking-wider">
+              <tr>
+                <th className="px-6 py-3.5">Élément</th>
+                <th className="px-6 py-3.5">Détails</th>
+                <th className="px-6 py-3.5 text-right">Statut</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {{{state_name}.length === 0 ? (
+                <tr>
+                  <td colSpan="3" className="px-6 py-8 text-center text-gray-400 text-sm">
+                    Aucune donnée enregistrée pour le moment.
+                  </td>
+                </tr>
+              ) : (
+                {state_name}.map((item, idx) => (
+                  <tr key={{idx}} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-6 py-4 font-semibold text-gray-900">
+                      {{item.name || item.nom || item.title || item.titre || `Item #${{idx + 1}}`}}
+                    </td>
+                    <td className="px-6 py-4 text-gray-600">
+                      {{item.description || item.email || item.statut || "Donnée active"}}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Actif
+                      </span>
+                    </td>
+                  </tr>
+                ))
+              )}}
+            </tbody>
+          </table>
+        </div>
       </div>''')
                 else:
-                    render_elements.append("<div className='card'>Liste sans données</div>")
+                    render_elements.append("<div className='p-6 bg-white border border-gray-200 rounded-2xl text-gray-400 text-sm mb-4'>Liste de données</div>")
             elif ui_type == "card":
-                render_elements.append(f"<div className='card'><h3>{props.get('title', 'Carte')}</h3><p>{props.get('text', '')}</p></div>")
+                render_elements.append(f'''<div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow mb-4"><h3 className="font-bold text-lg text-gray-900 mb-2">{props.get("title", "Carte")}</h3><p className="text-gray-600 text-sm">{props.get("text", "")}</p></div>''')
             elif ui_type == "divider":
-                render_elements.append("<hr style={{margin: '2rem 0', border: 'none', borderTop: '1px solid #eee'}} />")
+                render_elements.append('<hr className="my-8 border-t border-gray-200" />')
             elif ui_type == "spacer":
-                render_elements.append("<div style={{height: '2rem'}}></div>")
+                render_elements.append('<div className="h-6"></div>')
             
         if current_form:
             render_elements.append("</form>")
@@ -903,8 +943,10 @@ export default function {page_name}() {{
   {"".join([s + "\\n  " for s in state_declarations])}
   {"".join([e + "\\n  " for e in effects])}
   return (
-    <div className="container">
-      <h1 style={{color: 'var(--primary)', marginBottom: '2rem'}}>{page_name}</h1>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      <header className="border-b border-gray-200 pb-4">
+        <h1 className="text-3xl font-bold text-[#1A0E0A] font-serif">{page_name}</h1>
+      </header>
       {"".join([r + "\\n      " for r in render_elements])}
     </div>
   );
