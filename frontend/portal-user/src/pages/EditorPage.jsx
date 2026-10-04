@@ -5,9 +5,6 @@ import EditorHeader from "../components/editor/EditorHeader";
 import { useParams } from "react-router-dom";
 import { useProjects } from "../store/projectStore";
 import { useInterface } from "../hooks/useInterface";
-import { BlueprintProvider, useBlueprint } from "../context/BlueprintContext";
-import useAutosave from "../hooks/useAutosave";
-
 // Views
 import DataView from "../components/workspace/DataView";
 import LogicView from "../components/workspace/LogicView";
@@ -20,28 +17,6 @@ function WorkspaceContent() {
   const { projectId } = useParams();
   const { currentProject, setCurrentProject, projects, activeView } = useProjects();
   const { pages, loading, hydrate, createPage, deletePage } = useInterface(projectId);
-
-  const { blueprint, loadBlueprintByProject, loading: blueprintLoading } = useBlueprint();
-  const projectUuid = currentProject?.uuid ?? null;
-  
-  // Autosave pour le Blueprint
-  useAutosave();
-
-  useEffect(() => {
-    if (projectUuid) {
-      loadBlueprintByProject(projectUuid);
-    }
-  }, [projectUuid, loadBlueprintByProject]);
-
-  useEffect(() => {
-    if (blueprint) {
-      console.info(
-        `[Sprint 5] Blueprint chargé pour le projet "${currentProject?.name}" :`,
-        `\n  uuid    : ${blueprint.uuid}`,
-        `\n  version : ${blueprint.version}`
-      );
-    }
-  }, [blueprint, currentProject]);
 
   // Sync project
   useEffect(() => {
@@ -107,10 +82,8 @@ function WorkspaceContent() {
 
 export default function EditorPage() {
   return (
-    <BlueprintProvider>
-      <BaseSelectionProvider>
-        <WorkspaceContent />
-      </BaseSelectionProvider>
-    </BlueprintProvider>
+    <BaseSelectionProvider>
+      <WorkspaceContent />
+    </BaseSelectionProvider>
   );
 }
