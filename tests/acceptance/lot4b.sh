@@ -149,7 +149,9 @@ def load_engine(path: pathlib.Path, mod_name: str):
     for pkg in ("app", "app.core", "app.modules", "app.modules.projects", "app.modules.schema", "app.modules.interface_builder", "app.modules.workflow_engine"):
         if pkg not in sys.modules:
             sys.modules[pkg] = types.ModuleType(pkg)
-    class _Dummy: pass
+    class _Dummy:
+        def __init__(self, *args, **kwargs):
+            pass
     sys.modules["app.modules.projects.repository"] = types.SimpleNamespace(ProjectRepository=_Dummy)
     sys.modules["app.modules.schema.repository"] = types.SimpleNamespace(SchemaRepository=_Dummy, TableSchemaRepository=_Dummy, FieldRepository=_Dummy, RelationRepository=_Dummy)
     sys.modules["app.modules.interface_builder.repository"] = types.SimpleNamespace(InterfaceRepository=_Dummy, PageRepository=_Dummy, ComposantRepository=_Dummy, SectionRepository=_Dummy)
