@@ -30,6 +30,14 @@ if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>
   exit 1
 fi
 
+# a0. Refuser le démarrage/config si PLATFORM_SHARED_SECRET est absent
+if env -u PLATFORM_SHARED_SECRET IAM_DB_PASSWORD=dummy NOCODE_DB_PASSWORD=dummy \
+   docker compose -f "$COMPOSE_FILE" config >/dev/null 2>&1; then
+  report_step "a0" "n/a" "docker compose config succeeded without PLATFORM_SHARED_SECRET" "FAIL"
+else
+  report_step "a0" "n/a" "PLATFORM_SHARED_SECRET required by compose config" "PASS"
+fi
+
 # a. Générer des secrets aléatoires, reset volumes, build + démarrage --wait
 export PLATFORM_SHARED_SECRET
 export IAM_DB_PASSWORD

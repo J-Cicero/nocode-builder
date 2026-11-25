@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -13,11 +14,27 @@ from app.modules.users.router import router as users_router
 logger = logging.getLogger(__name__)
 
 
+async def _init_db_with_retry(timeout_seconds: float = 35.0, interval_seconds: float = 1.0) -> None:
+    """Wait for PostgreSQL availability and create tables, retrying for at least 30s."""
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            return
+        except Exception as exc:
+            if asyncio.get_running_loop().time() >= deadline:
+                raise
+            logger.warning(f"DB init attempt {attempt} failed ({exc}); retrying in {interval_seconds}s")
+            await asyncio.sleep(interval_seconds)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if os.getenv("AUTO_CREATE_TABLES", "true").lower() == "true":
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        await _init_db_with_retry()
     yield
     await engine.dispose()
 

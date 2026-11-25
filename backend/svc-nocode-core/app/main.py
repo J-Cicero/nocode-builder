@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -11,7 +12,7 @@ from app.api.v1.endpoints.workspaces import router as workspaces_router
 from app.api.v1.endpoints.projects import router as projects_router
 from app.api.v1.endpoints.blueprints import router as blueprints_router
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import Base, engine
 from app.core.logging import setup_logging
 
 # ─── Logging Setup ──────────────────────────────────────────────────────────────
@@ -19,12 +20,28 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+async def _init_db_with_retry(active_tables: list, timeout_seconds: float = 35.0, interval_seconds: float = 1.0) -> None:
+    """Wait for PostgreSQL availability and create tables, retrying for at least 30s."""
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=active_tables))
+            return
+        except Exception as exc:
+            if asyncio.get_running_loop().time() >= deadline:
+                raise
+            logger.warning(f"DB init attempt {attempt} failed ({exc}); retrying in {interval_seconds}s")
+            await asyncio.sleep(interval_seconds)
+
+
 # ─── Lifespan ───────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 NoCode Builder API starting up...")
     if os.getenv("AUTO_CREATE_TABLES", "true").lower() == "true":
-        from app.core.database import Base
         import app.models  # noqa: F401
         from app.modules.ai import models as _ai_models  # noqa: F401
         from app.modules.data_engine import models as _data_models  # noqa: F401
@@ -36,8 +53,7 @@ async def lifespan(app: FastAPI):
 
         # Crée toutes les tables actives (hors table legacy `users`, gérée par svc-iam)
         active_tables = [t for name, t in Base.metadata.tables.items() if name != "users"]
-        async with engine.begin() as conn:
-            await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=active_tables))
+        await _init_db_with_retry(active_tables)
     yield
     logger.info("🛑 NoCode Builder API shutting down...")
     await engine.dispose()
