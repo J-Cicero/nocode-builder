@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     AI_API_KEY: str = ""
     AI_BASE_URL: str = "https://api.mistral.ai/v1"
     AI_MODEL: str = "mistral-small-latest"
+    AI_TIMEOUT_SECONDS: float = 60.0
     # Clé Fernet servant à chiffrer les clés API stockées en base.
     # Générer avec : python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     AI_KEYS_ENCRYPTION_KEY: str = ""

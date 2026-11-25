@@ -67,6 +67,11 @@ services:
       POSTGRES_PASSWORD: ${NOCODE_DB_PASSWORD:?NOCODE_DB_PASSWORD must be set}
       POSTGRES_DB: ${NOCODE_DB_NAME:-nocode_builder_v2}
       SECRET_KEY: ${PLATFORM_SHARED_SECRET:?PLATFORM_SHARED_SECRET must be set}
+      AI_PROVIDER: ${AI_PROVIDER:-mistral}
+      AI_MODEL: ${AI_MODEL:-mistral-small-latest}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.mistral.ai/v1}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
     depends_on:
       svc-nocode-core-db:
         condition: service_healthy
