@@ -1,0 +1,28 @@
+# Override de test pour LOT 3 : démarre fake-ai et pointe svc-nocode-core dessus.
+services:
+  fake-ai:
+    image: python:3.12-slim
+    working_dir: /app/tests/acceptance
+    volumes:
+      - ../tests/acceptance:/app/tests/acceptance:ro
+    command: ["python", "/app/tests/acceptance/fake_ai.py", "--host", "0.0.0.0", "--port", "8090"]
+    ports:
+      - "8090:8090"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health', timeout=2)"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  svc-nocode-core:
+    environment:
+      AI_PROVIDER: fake
+      AI_MODEL: fake-model
+      AI_BASE_URL: http://fake-ai:8090/v1
+      AI_API_KEY: fake-key-lot3-test
+      AI_TIMEOUT_SECONDS: "5"
+    depends_on:
+      svc-nocode-core-db:
+        condition: service_healthy
+      fake-ai:
+        condition: service_healthy

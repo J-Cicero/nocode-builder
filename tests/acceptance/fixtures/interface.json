@@ -1,0 +1,52 @@
+{
+  "pages": [
+    {
+      "name": "Accueil",
+      "path": "/",
+      "device": "desktop",
+      "is_home": true,
+      "sections": [
+        {
+          "type": "navbar",
+          "ordre": 1,
+          "title": "Navigation",
+          "config": {
+            "title": "Pressing Pro",
+            "links": [
+              {"label": "Accueil", "path": "/"},
+              {"label": "Clients", "path": "/clients"}
+            ]
+          }
+        },
+        {
+          "type": "hero",
+          "ordre": 2,
+          "title": "Bienvenue",
+          "config": {
+            "title": "Gestion de pressing",
+            "subtitle": "Suivez vos clients et commandes en temps réel",
+            "cta": {"label": "Voir les clients", "href": "/clients"}
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clients",
+      "path": "/clients",
+      "device": "desktop",
+      "is_home": false,
+      "sections": [
+        {
+          "type": "text-section",
+          "ordre": 1,
+          "title": "Liste des clients",
+          "config": {
+            "title": "Répertoire clients",
+            "content": "Consultez et gérez vos fiches clients."
+          },
+          "connecte_a": "clients"
+        }
+      ]
+    }
+  ]
+}

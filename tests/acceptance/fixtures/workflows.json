@@ -1,0 +1,20 @@
+{
+  "workflows": [
+    {
+      "nom": "Confirmation commande",
+      "description": "Envoie une confirmation lorsqu'une commande est créée",
+      "etapes": [
+        {
+          "type": "declencheur",
+          "ordre": 0,
+          "config": {"table": "commandes", "evenement": "created"}
+        },
+        {
+          "type": "action",
+          "ordre": 1,
+          "config": {"action_type": "send_email", "template": "confirmation"}
+        }
+      ]
+    }
+  ]
+}

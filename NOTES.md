@@ -43,3 +43,24 @@ Les points suivants ont été constatés lors de l'audit et consignés ici **san
 4. **`backend/svc-nocode-core/app/modules/data_engine/service.py` (ligne 34)** : `create()` passe `schema.id` (Integer) au lieu de `schema.tracking_id` (UUID) à `table_repo.get_by_name_and_schema()`, provoquant une 500 PostgreSQL lors du `POST /api/data/projects/{project_id}/{table_name}`. Hors périmètre LOT 2 (découvert lors de la validation E2E).
 5. **`backend/svc-nocode-core/app/modules/workflow_engine/service.py` (ligne 52)** : `create_workflow()` appelle `WorkflowResponse.model_validate(workflow)` sans `selectinload(Workflow.etapes)` après `workflow_repo.create()`, provoquant un `MissingGreenlet` sous SQLAlchemy async. Hors périmètre LOT 2 (découvert lors de la validation E2E).
 6. **`tests/acceptance/lot1.sh`, `lot2.sh`, `run_all.sh`** : validés syntaxiquement par `bash -n` ; sous Windows 10 Pro sans Docker, la validation d'exécution complète a été exécutée contre PostgreSQL 17 réel et les 3 serveurs `uvicorn` réels (`svc-iam`, `svc-nocode-core`, `svc-api-gateway`).
+
+---
+
+# Notes techniques — LOT 3 (`v1/lot-3`)
+
+## Points réglés dans le LOT 3
+
+- **Partie 0 (compléments de sécurité du lot 2)** :
+  - Export de `OWNED_PATH_PARAMS` et `NON_OWNERSHIP_PATH_PARAMS` depuis `backend/svc-nocode-core/app/core/ownership.py` et audit automatique des paramètres de chemin OpenAPI dans `tests/acceptance/lot2.sh` (`a2`).
+  - Vérification d'appartenance de `data.source_table_id` et `data.target_table_id` dans `create_relation` (`backend/svc-nocode-core/app/modules/schema/router.py`).
+  - Test de non-création par l'utilisateur B sous les parents de l'utilisateur A (avec et sans préfixe `/api`) avec vérification des comptes avant/après dans `tests/acceptance/lot2.sh` (`e2`).
+- **Partie 1** : import de `SectionType` corrigé dans `backend/svc-nocode-core/app/modules/ai/service.py` et création de `tests/acceptance/static_checks.sh` avec auto-test `F821`.
+  - Note outillage (`ruff 0.17.6`) : la règle `E999` a été supprimée des versions récentes de `ruff` (les erreurs de syntaxe restent toujours détectées nativement quel que soit `--select`). `static_checks.sh` utilise `--select F821,F811`.
+- **Partie 2–4** : configuration IA par variables d'environnement (`AI_TIMEOUT_SECONDS=60`), validation Pydantic v2 stricte (`backend/svc-nocode-core/app/modules/ai/validation.py`) sans repli silencieux vers `text-section`, retry unique avec erreurs précises, transactions atomiques et protection `409 PROJECT_NOT_EMPTY` avec `?replace=true`, erreurs JSON françaises normalisées (`AI_NOT_CONFIGURED`, `AI_PROVIDER_AUTH`, `AI_RATE_LIMITED`, `AI_TIMEOUT`, `AI_PROVIDER_ERROR`, `AI_INVALID_OUTPUT`, `PROJECT_NOT_EMPTY`).
+- **Tests d'acceptance LOT 3** : `tests/acceptance/fake_ai.py`, `tests/acceptance/fixtures/*.json`, `infra/docker-compose.test.yml`, `tests/acceptance/lot3.sh`, `tests/acceptance/lot3_live.sh` et `tests/acceptance/run_all.sh`.
+
+## Écarts d'environnement / hors périmètre LOT 3
+
+- Branche `v1/lot-3` créée depuis le tag local `lot-2` (équivalent sur ce dépôt du tag `lot-2b` mentionné dans le prompt).
+- Le catalogue IA admin (`catalog_router.py`, `catalog_service.py`), `generator_engine.py`, les frontends et les services gelés n'ont pas été modifiés.
+- Sous Windows 10 Pro sans Docker, la validation bout en bout de `lot2.sh` + `lot3.sh` a été exécutée contre PostgreSQL 17 réel, les 3 serveurs `uvicorn` réels et `tests/acceptance/fake_ai.py` réel (et `lot3_live.sh` est SKIP sans `MISTRAL_API_KEY`).

@@ -1,0 +1,23 @@
+{
+  "tables": [
+    {
+      "name": "clients",
+      "display_name": "Clients",
+      "fields": [
+        {"name": "full_name", "type": "text", "required": true, "unique": false},
+        {"name": "email", "type": "email", "required": true, "unique": true},
+        {"name": "phone", "type": "text", "required": false, "unique": false}
+      ]
+    },
+    {
+      "name": "commandes",
+      "display_name": "Commandes",
+      "fields": [
+        {"name": "client_email", "type": "email", "required": true, "unique": false},
+        {"name": "total_amount", "type": "number", "required": true, "unique": false},
+        {"name": "order_date", "type": "date", "required": true, "unique": false}
+      ]
+    }
+  ],
+  "relations": []
+}
