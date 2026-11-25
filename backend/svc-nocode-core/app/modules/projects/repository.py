@@ -38,11 +38,20 @@ class ProjectRepository:
         )
         return list(result.scalars().all())
 
+    async def _unique_slug(self, name: str, owner_id: UUID) -> str:
+        base_slug = slugify(name, owner_id)
+        candidate = base_slug
+        suffix = 2
+        while (await self.db.execute(select(Project.id).where(Project.slug == candidate))).first() is not None:
+            candidate = f"{base_slug}-{suffix}"
+            suffix += 1
+        return candidate
+
     async def create(self, name: str, description: str | None, is_public: bool, owner_id: UUID) -> Project:
         project = Project(
             name=name,
             description=description,
-            slug=slugify(name, owner_id),
+            slug=await self._unique_slug(name, owner_id),
             is_public=is_public,
             owner_id=owner_id,
             config={
@@ -71,7 +80,7 @@ class ProjectRepository:
         new_project = Project(
             name=f"{project.name} (copie)",
             description=project.description,
-            slug=slugify(f"{project.name}-copie", owner_id),
+            slug=await self._unique_slug(f"{project.name}-copie", owner_id),
             is_public=False,
             owner_id=owner_id,
             config=project.config.copy(),

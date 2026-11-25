@@ -306,3 +306,8 @@ class ValidatedWorkflow(BaseModel):
 
 class ValidatedWorkflowsOutput(BaseModel):
     workflows: list[ValidatedWorkflow] = Field(default_factory=list)
+
+
+AISchemaOutput = ValidatedSchemaOutput
+AIInterfaceOutput = ValidatedInterfaceOutput
+AIWorkflowsOutput = ValidatedWorkflowsOutput

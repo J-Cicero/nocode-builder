@@ -19,9 +19,10 @@ from openai import (
     RateLimitError,
 )
 from pydantic import ValidationError
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.app_builder import apply_blueprint
 from app.core.config import settings
 from app.core.identity import Identity as User
 from app.modules.ai.catalog_service import AICatalogService
@@ -55,14 +56,11 @@ from app.modules.interface_builder.models import (
     Composant,
     Interface,
     Page,
-    Section,
     SectionType,  # noqa: F401
-    TypePage,
 )
 from app.modules.interface_builder.repository import InterfaceRepository
 from app.modules.projects.repository import ProjectRepository
-from app.modules.schema.models import Field, FieldType, Relation, RelationType, Schema, TableSchema
-from app.modules.workflow_engine.models import EtapeWorkflow, ExecutionWorkflow, Workflow
+from app.modules.schema.models import Field, Relation, Schema, TableSchema
 
 logger = logging.getLogger(__name__)
 
@@ -261,167 +259,6 @@ class AIService:
             errors=last_errors,
         )
 
-    async def _clear_schema(self, project_id: UUID) -> None:
-        schema_ids = select(Schema.tracking_id).where(Schema.project_id == project_id)
-        table_ids = select(TableSchema.tracking_id).where(TableSchema.schema_id.in_(schema_ids))
-        await self.db.execute(delete(Field).where(Field.table_id.in_(table_ids)))
-        await self.db.execute(delete(Relation).where(Relation.schema_id.in_(schema_ids)))
-        await self.db.execute(delete(TableSchema).where(TableSchema.schema_id.in_(schema_ids)))
-        await self.db.execute(delete(Schema).where(Schema.project_id == project_id))
-        await self.db.flush()
-
-    async def _clear_interface(self, project_id: UUID) -> None:
-        iface_ids = select(Interface.tracking_id).where(Interface.project_id == project_id)
-        page_ids = select(Page.tracking_id).where(Page.interface_id.in_(iface_ids))
-        await self.db.execute(delete(Composant).where(Composant.page_id.in_(page_ids)))
-        await self.db.execute(delete(Section).where(Section.page_id.in_(page_ids)))
-        await self.db.execute(delete(Page).where(Page.interface_id.in_(iface_ids)))
-        await self.db.execute(delete(Interface).where(Interface.project_id == project_id))
-        await self.db.flush()
-
-    async def _clear_workflows(self, project_id: UUID) -> None:
-        wf_ids = select(Workflow.tracking_id).where(Workflow.project_id == project_id)
-        await self.db.execute(delete(EtapeWorkflow).where(EtapeWorkflow.workflow_id.in_(wf_ids)))
-        await self.db.execute(delete(ExecutionWorkflow).where(ExecutionWorkflow.workflow_id.in_(wf_ids)))
-        await self.db.execute(delete(Workflow).where(Workflow.project_id == project_id))
-        await self.db.flush()
-
-    async def _persist_schema(self, project_id: UUID, validated: ValidatedSchemaOutput, *, replace: bool) -> tuple[list[str], int]:
-        if replace:
-            await self._clear_schema(project_id)
-        schema = (await self.db.execute(select(Schema).where(Schema.project_id == project_id))).scalar_one_or_none()
-        if not schema:
-            schema = Schema(project_id=project_id)
-            self.db.add(schema)
-            await self.db.flush()
-
-        table_mapping: dict[str, UUID] = {}
-        for t in validated.tables:
-            table = TableSchema(
-                schema_id=schema.tracking_id,
-                name=t.name,
-                display_name=t.display_name or t.name.replace("_", " ").title(),
-            )
-            self.db.add(table)
-            await self.db.flush()
-            table_mapping[t.name] = table.tracking_id
-            for idx, f in enumerate(t.fields):
-                field_type_enum = FieldType(f.type)
-                field = Field(
-                    table_id=table.tracking_id,
-                    name=f.name,
-                    display_name=f.name.replace("_", " ").title(),
-                    type=field_type_enum,
-                    required=f.required,
-                    unique=f.unique,
-                    config={"default": f.default} if f.default is not None else {},
-                    order=idx,
-                )
-                self.db.add(field)
-            await self.db.flush()
-
-        relations_count = 0
-        for rel in validated.relations:
-            rel_type_enum = RelationType(rel.type)
-            relation = Relation(
-                schema_id=schema.tracking_id,
-                source_table_id=table_mapping[rel.from_table],
-                target_table_id=table_mapping[rel.to_table],
-                name=rel.name or f"{rel.from_table}_{rel.type}_{rel.to_table}",
-                type=rel_type_enum,
-                description=rel.description,
-                source_key=rel.source_key,
-                target_key=rel.target_key,
-            )
-            self.db.add(relation)
-            relations_count += 1
-        await self.db.flush()
-        return list(table_mapping.keys()), relations_count
-
-    async def _persist_interface(
-        self,
-        project_id: UUID,
-        validated: ValidatedInterfaceOutput,
-        *,
-        replace: bool,
-    ) -> tuple[list[str], int]:
-        if replace:
-            await self._clear_interface(project_id)
-        interface = (
-            await self.db.execute(select(Interface).where(Interface.project_id == project_id))
-        ).scalar_one_or_none()
-        if not interface:
-            interface = Interface(project_id=project_id, version=1)
-            self.db.add(interface)
-            await self.db.flush()
-
-        page_type_mapping = {
-            "mobile": TypePage.MOBILE,
-            "tablet": TypePage.TABLET,
-            "desktop": TypePage.DESKTOP,
-        }
-        pages_created: list[str] = []
-        sections_created = 0
-        for page_idx, page_data in enumerate(validated.pages):
-            page = Page(
-                interface_id=interface.tracking_id,
-                nom=page_data.name,
-                chemin=page_data.path,
-                type_page=page_type_mapping.get(page_data.device, TypePage.DESKTOP),
-                est_accueil=bool(page_data.is_home or page_idx == 0),
-                ordre=page_idx,
-            )
-            self.db.add(page)
-            await self.db.flush()
-            pages_created.append(page_data.name)
-
-            for sec_idx, sec in enumerate(page_data.sections):
-                sec_connecte_a = sec.connecte_a or (sec.config.get("table") if isinstance(sec.config, dict) else None)
-                sec_title = sec.title or (sec.config.get("title") if isinstance(sec.config, dict) else None)
-                section = Section(
-                    page_id=page.tracking_id,
-                    type=sec.type,
-                    ordre=sec.ordre if sec.ordre is not None else sec_idx,
-                    config=sec.config or {},
-                    connecte_a=sec_connecte_a,
-                    title=sec_title,
-                )
-                self.db.add(section)
-                sections_created += 1
-        await self.db.flush()
-        return pages_created, sections_created
-
-    async def _persist_workflows(
-        self,
-        project_id: UUID,
-        validated: ValidatedWorkflowsOutput,
-        *,
-        replace: bool,
-    ) -> int:
-        if replace:
-            await self._clear_workflows(project_id)
-        count = 0
-        for wf_data in validated.workflows:
-            workflow = Workflow(
-                project_id=project_id,
-                nom=wf_data.nom,
-                description=wf_data.description,
-                actif=True,
-            )
-            self.db.add(workflow)
-            await self.db.flush()
-            for etape_data in wf_data.etapes:
-                etape = EtapeWorkflow(
-                    workflow_id=workflow.tracking_id,
-                    type=etape_data.type,
-                    ordre=etape_data.ordre,
-                    config=etape_data.config,
-                )
-                self.db.add(etape)
-            count += 1
-        await self.db.flush()
-        return count
-
     async def _existing_table_names(self, project_id: UUID) -> list[str]:
         rows = await self.db.execute(
             select(TableSchema.name)
@@ -559,7 +396,9 @@ class AIService:
         )
 
         try:
-            table_names, relations_count = await self._persist_schema(project_id, validated, replace=replace)
+            applied = await apply_blueprint(self.db, project_id, schema=validated, replace=replace)
+            table_names = applied.tables_created
+            relations_count = applied.relations_created
             conversation = await self.conv_repo.get_or_create(project_id)
             summary = f"Schéma généré avec {len(table_names)} table(s) : {', '.join(table_names)}."
             await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
@@ -606,7 +445,9 @@ class AIService:
         )
 
         try:
-            pages_created, sections_created = await self._persist_interface(project_id, validated, replace=replace)
+            applied = await apply_blueprint(self.db, project_id, interface=validated, replace=replace)
+            pages_created = applied.pages_created
+            sections_created = applied.sections_created
             conversation = await self.conv_repo.get_or_create(project_id)
             summary = f"Interface générée avec {len(pages_created)} page(s) et {sections_created} section(s)."
             await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
@@ -669,9 +510,19 @@ class AIService:
 
         # 2. Écriture atomique complète (remplacement + schéma + interface + workflows)
         try:
-            table_names, relations_count = await self._persist_schema(project_id, schema_validated, replace=replace)
-            pages_created, sections_created = await self._persist_interface(project_id, interface_validated, replace=replace)
-            workflows_count = await self._persist_workflows(project_id, workflows_validated, replace=replace)
+            applied = await apply_blueprint(
+                self.db,
+                project_id,
+                schema=schema_validated,
+                interface=interface_validated,
+                workflows=workflows_validated,
+                replace=replace,
+            )
+            table_names = applied.tables_created
+            relations_count = applied.relations_created
+            pages_created = applied.pages_created
+            sections_created = applied.sections_created
+            workflows_count = applied.workflows_created
 
             conversation = await self.conv_repo.get_or_create(project_id)
             summary = (
