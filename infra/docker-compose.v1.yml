@@ -1,0 +1,104 @@
+# Stack V1 minimale (noyau actif uniquement — voir FROZEN.md pour les services gelés).
+# Note locale : build.network: host est un contournement pour les machines dont
+# le bridge Docker n'a pas de résolution DNS pendant pip install (voir NOTES.md).
+
+services:
+  svc-iam-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${IAM_DB_USER:-iam}
+      POSTGRES_PASSWORD: ${IAM_DB_PASSWORD:?IAM_DB_PASSWORD must be set}
+      POSTGRES_DB: ${IAM_DB_NAME:-iam}
+    ports:
+      - "5433:5432"
+    volumes:
+      - iam_v1_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${IAM_DB_USER:-iam} -d ${IAM_DB_NAME:-iam}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  svc-nocode-core-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${NOCODE_DB_USER:-nocode}
+      POSTGRES_PASSWORD: ${NOCODE_DB_PASSWORD:?NOCODE_DB_PASSWORD must be set}
+      POSTGRES_DB: ${NOCODE_DB_NAME:-nocode_builder_v2}
+    ports:
+      - "5434:5432"
+    volumes:
+      - nocode_v1_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NOCODE_DB_USER:-nocode} -d ${NOCODE_DB_NAME:-nocode_builder_v2}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  svc-iam:
+    build:
+      context: ../backend/svc-iam
+      network: host  # Contournement local : bridge Docker sans DNS
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${IAM_DB_USER:-iam}:${IAM_DB_PASSWORD:?IAM_DB_PASSWORD must be set}@svc-iam-db:5432/${IAM_DB_NAME:-iam}
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:?PLATFORM_SHARED_SECRET must be set}
+    depends_on:
+      svc-iam-db:
+        condition: service_healthy
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  svc-nocode-core:
+    build:
+      context: ../backend/svc-nocode-core
+      network: host  # Contournement local : bridge Docker sans DNS
+    environment:
+      POSTGRES_HOST: svc-nocode-core-db
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${NOCODE_DB_USER:-nocode}
+      POSTGRES_PASSWORD: ${NOCODE_DB_PASSWORD:?NOCODE_DB_PASSWORD must be set}
+      POSTGRES_DB: ${NOCODE_DB_NAME:-nocode_builder_v2}
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:?PLATFORM_SHARED_SECRET must be set}
+    depends_on:
+      svc-nocode-core-db:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  svc-api-gateway:
+    build:
+      context: ../backend/svc-api-gateway
+      network: host  # Contournement local : bridge Docker sans DNS
+    environment:
+      IAM_UPSTREAM: http://svc-iam:8001
+      NOCODE_UPSTREAM: http://svc-nocode-core:8000
+      SECRET_KEY: ${PLATFORM_SHARED_SECRET:?PLATFORM_SHARED_SECRET must be set}
+    depends_on:
+      svc-iam:
+        condition: service_healthy
+      svc-nocode-core:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  iam_v1_db_data:
+  nocode_v1_db_data:
