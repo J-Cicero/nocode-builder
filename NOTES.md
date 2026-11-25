@@ -63,4 +63,5 @@ Les points suivants ont été constatés lors de l'audit et consignés ici **san
 
 - Branche `v1/lot-3` créée depuis le tag local `lot-2` (équivalent sur ce dépôt du tag `lot-2b` mentionné dans le prompt).
 - Le catalogue IA admin (`catalog_router.py`, `catalog_service.py`), `generator_engine.py`, les frontends et les services gelés n'ont pas été modifiés.
+- `GET /api/interface/{project_id}` (`interface_builder/service.py`) crée automatiquement une interface et une page d'accueil `/` lors d'une lecture sur un projet vierge (comportement pré-existant conservé hors périmètre LOT 3).
 - Sous Windows 10 Pro sans Docker, la validation bout en bout de `lot2.sh` + `lot3.sh` a été exécutée contre PostgreSQL 17 réel, les 3 serveurs `uvicorn` réels et `tests/acceptance/fake_ai.py` réel (et `lot3_live.sh` est SKIP sans `MISTRAL_API_KEY`).

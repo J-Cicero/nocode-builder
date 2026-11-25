@@ -196,18 +196,20 @@ fi
 
 # g. bad_section_type -> 502 AI_INVALID_OUTPUT & rien en base ; bad_then_good -> 200 & stats retry
 OUT_BAD="$(http_call POST "$GATEWAY_URL/api/nocode/api/ai/projects/$P4/generate-app" "{\"description\":\"Section carousel [[MODE:bad_section_type]]\"}" "$TOKEN_A")"
-SNAP_P4_BAD="$(project_snapshot "$P4")"
+P4_DB_COUNTS="$(docker compose -f "$COMPOSE_V1" -f "$COMPOSE_TEST" exec -T svc-nocode-core-db \
+  psql -U "${NOCODE_DB_USER:-nocode}" -d "${NOCODE_DB_NAME:-nocode_builder_v2}" -Atc \
+  "SELECT (SELECT count(*) FROM tables_schema t JOIN schemas s ON t.schema_id = s.tracking_id WHERE s.project_id = '$P4') || ',' || (SELECT count(*) FROM pages p JOIN interfaces i ON p.interface_id = i.tracking_id WHERE i.project_id = '$P4') || ',' || (SELECT count(*) FROM workflows WHERE project_id = '$P4');")"
 curl -sf -X POST "$FAKE_AI_URL/stats/reset" >/dev/null
 OUT_RETRY="$(http_call POST "$GATEWAY_URL/api/nocode/api/ai/projects/$P4/generate-app" "{\"description\":\"Retry unique [[MODE:bad_then_good]]\"}" "$TOKEN_A")"
 STATS_JSON="$(curl -sf "$FAKE_AI_URL/stats")"
 BAD_CODE="${OUT_BAD%%$'\n'*}"
 BAD_ERR="$(printf '%s' "${OUT_BAD#*$'\n'}" | json_field code || true)"
 RETRY_CODE="${OUT_RETRY%%$'\n'*}"
-EMPTY_CHECK="$(python3 -c 'import json,sys; s=json.loads(sys.argv[1]); st=json.loads(sys.argv[2]); print(s["tables"]==[] and s["pages"]==[] and st["by_type"]["schema"]==2 and st["total"]==4)' "$SNAP_P4_BAD" "$STATS_JSON")"
+EMPTY_CHECK="$(python3 -c 'import json,sys; st=json.loads(sys.argv[2]); print(sys.argv[1]=="0,0,0" and st["by_type"]["schema"]==2 and st["total"]==4)' "$P4_DB_COUNTS" "$STATS_JSON")"
 if [[ "$BAD_CODE" == "502" && "$BAD_ERR" == "AI_INVALID_OUTPUT" && "$RETRY_CODE" == "200" && "$EMPTY_CHECK" == "True" ]]; then
-  report_step "g" "502/200" "bad_section_type=502 (0 tables/pages), bad_then_good=200, stats=$STATS_JSON" "PASS"
+  report_step "g" "502/200" "bad_section_type=502 (DB=$P4_DB_COUNTS), bad_then_good=200, stats=$STATS_JSON" "PASS"
 else
-  report_step "g" "$BAD_CODE/$RETRY_CODE" "stats=$STATS_JSON snap=$SNAP_P4_BAD" "FAIL"
+  report_step "g" "$BAD_CODE/$RETRY_CODE" "stats=$STATS_JSON db_counts=$P4_DB_COUNTS" "FAIL"
 fi
 
 # h. rate_limit -> 503, auth_error -> 502, slow -> 504 (<15s), sans Traceback ni clé
