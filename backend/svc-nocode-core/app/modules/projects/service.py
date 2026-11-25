@@ -7,7 +7,7 @@ from app.modules.projects.schema import (
     ProjectStatusUpdate, ProjectListResponse, ProjectSummary
 )
 from app.modules.projects.models import Project
-from app.modules.auth.models import User, UserRole
+from app.core.identity import Identity
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import text
 
@@ -17,20 +17,21 @@ class ProjectService:
     def __init__(self, repo: ProjectRepository):
         self.repo = repo
 
-    def _check_owner(self, project: Project, user: User) -> None:
-        is_admin = user.role == UserRole.ADMIN
+    def _check_owner(self, project: Project, user: Identity) -> None:
+        role_val = getattr(user.role, "value", user.role)
+        is_admin = str(role_val or "").lower() in {"admin", "super_admin"}
         is_owner = str(project.owner_id) == str(user.tracking_id)
         if not is_admin and not is_owner:
             raise HTTPException(status_code=403, detail="Accès refusé.")
 
-    async def get_my_projects(self, user: User) -> ProjectListResponse:
+    async def get_my_projects(self, user: Identity) -> ProjectListResponse:
         projects = await self.repo.get_all_by_owner(user.tracking_id)
         return ProjectListResponse(
             total=len(projects),
             projects=[ProjectSummary.model_validate(p) for p in projects]
         )
 
-    async def create_project(self, data: ProjectCreate, user: User) -> Project:
+    async def create_project(self, data: ProjectCreate, user: Identity) -> Project:
         return await self.repo.create(
             name=data.name,
             description=data.description,
@@ -38,7 +39,7 @@ class ProjectService:
             owner_id=user.tracking_id,
         )
 
-    async def get_project(self, tracking_id: UUID, user: User) -> Project:
+    async def get_project(self, tracking_id: UUID, user: Identity) -> Project:
         project = await self.repo.get_by_tracking_id(tracking_id)
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")
@@ -46,21 +47,21 @@ class ProjectService:
             self._check_owner(project, user)
         return project
 
-    async def update_project(self, tracking_id: UUID, data: ProjectUpdate, user: User) -> Project:
+    async def update_project(self, tracking_id: UUID, data: ProjectUpdate, user: Identity) -> Project:
         project = await self.repo.get_by_tracking_id(tracking_id)
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")
         self._check_owner(project, user)
         return await self.repo.update(project, data.model_dump(exclude_unset=True))
 
-    async def update_status(self, tracking_id: UUID, data: ProjectStatusUpdate, user: User) -> Project:
+    async def update_status(self, tracking_id: UUID, data: ProjectStatusUpdate, user: Identity) -> Project:
         project = await self.repo.get_by_tracking_id(tracking_id)
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")
         self._check_owner(project, user)
         return await self.repo.update(project, {"status": data.status})
 
-    async def delete_project(self, tracking_id: UUID, user: User) -> None:
+    async def delete_project(self, tracking_id: UUID, user: Identity) -> None:
         project = await self.repo.get_by_tracking_id(tracking_id)
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")
@@ -99,7 +100,7 @@ class ProjectService:
             await self.repo.db.rollback()
             raise HTTPException(status_code=400, detail="Impossible de supprimer ce projet car il contient des données liées.")
 
-    async def duplicate_project(self, tracking_id: UUID, user: User) -> Project:
+    async def duplicate_project(self, tracking_id: UUID, user: Identity) -> Project:
         project = await self.repo.get_by_tracking_id(tracking_id)
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")

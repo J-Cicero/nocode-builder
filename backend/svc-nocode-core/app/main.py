@@ -1,8 +1,10 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.api.v1.health import router as health_router
 from app.api.v1.endpoints.workspaces import router as workspaces_router
@@ -21,16 +23,21 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 NoCode Builder API starting up...")
-    # Tables du catalogue d'IA : créées si absentes, sans toucher aux tables existantes.
-    try:
+    if os.getenv("AUTO_CREATE_TABLES", "true").lower() == "true":
         from app.core.database import Base
-        from app.modules.ai.models import AIProvider, AIModel
+        import app.models  # noqa: F401
+        from app.modules.ai import models as _ai_models  # noqa: F401
+        from app.modules.data_engine import models as _data_models  # noqa: F401
+        from app.modules.generator import models as _gen_models  # noqa: F401
+        from app.modules.interface_builder import models as _ui_models  # noqa: F401
+        from app.modules.projects import models as _proj_models  # noqa: F401
+        from app.modules.schema import models as _schema_models  # noqa: F401
+        from app.modules.workflow_engine import models as _wf_models  # noqa: F401
+
+        # Crée toutes les tables actives (hors table legacy `users`, gérée par svc-iam)
+        active_tables = [t for name, t in Base.metadata.tables.items() if name != "users"]
         async with engine.begin() as conn:
-            await conn.run_sync(
-                lambda c: Base.metadata.create_all(c, tables=[AIProvider.__table__, AIModel.__table__])
-            )
-    except Exception as e:
-        logger.error(f"Impossible de préparer les tables du catalogue d'IA: {e}")
+            await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=active_tables))
     yield
     logger.info("🛑 NoCode Builder API shutting down...")
     await engine.dispose()
@@ -84,7 +91,17 @@ for mod_path, router_name, prefix, tags in modules_to_load:
 
 
 
-# ─── Root ───────────────────────────────────────────────────────────────────────
+# ─── Root & Health ──────────────────────────────────────────────────────────────
+@app.get("/health", tags=["Health"])
+async def health():
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable") from exc
+    return {"status": "ok", "service": "svc-nocode-core"}
+
+
 @app.get("/", tags=["Root"])
 async def root():
     return {
