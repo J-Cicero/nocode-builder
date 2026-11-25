@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.identity import decode_access_token, is_public_path
 from app.core.logging import setup_logging
+from app.modules.ai.validation import AIServiceError
 
 # ─── Logging Setup ──────────────────────────────────────────────────────────────
 setup_logging()
@@ -61,6 +62,14 @@ app = FastAPI(
     version=settings.API_VERSION,
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(AIServiceError)
+async def ai_service_error_handler(request: Request, exc: AIServiceError):
+    payload: dict = {"detail": exc.detail, "code": exc.code}
+    if exc.errors:
+        payload["errors"] = exc.errors
+    return JSONResponse(status_code=exc.status_code, content=payload)
 
 # ─── CORS ───────────────────────────────────────────────────────────────────────
 app.add_middleware(

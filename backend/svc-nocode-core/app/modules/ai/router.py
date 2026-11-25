@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
@@ -56,10 +56,11 @@ async def chat(
 async def generate_schema(
     project_id: UUID,
     data: SchemaGenerationRequest,
+    replace: bool = Query(default=False, description="Remplacer le schéma existant"),
     current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ) -> SchemaGenerationResponse:
-    return await service.generate_schema(project_id, data, current_user)
+    return await service.generate_schema(project_id, data, current_user, replace=replace)
 
 
 @router.post(
@@ -73,10 +74,11 @@ async def generate_schema(
 async def generate_interface(
     project_id: UUID,
     data: InterfaceGenerationRequest,
+    replace: bool = Query(default=False, description="Remplacer l'interface existante"),
     current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ) -> InterfaceGenerationResponse:
-    return await service.generate_interface(project_id, data, current_user)
+    return await service.generate_interface(project_id, data, current_user, replace=replace)
 
 
 @router.post(
@@ -88,10 +90,11 @@ async def generate_interface(
 async def generate_app(
     project_id: UUID,
     data: AppGenerationRequest,
+    replace: bool = Query(default=False, description="Remplacer le schéma et l'interface existants"),
     current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ):
-    return await service.generate_app(project_id, data, current_user)
+    return await service.generate_app(project_id, data, current_user, replace=replace)
 
 
 @router.get(

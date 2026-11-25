@@ -1,568 +1,713 @@
+"""AI assistant and structured app/schema/interface/workflow generation service."""
+from __future__ import annotations
+
+import asyncio
 import json
-from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select
-from uuid import UUID
-from openai import AsyncOpenAI
+import logging
 import time
+from uuid import UUID
+
+import httpx
+from fastapi import HTTPException, status
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AsyncOpenAI,
+    AuthenticationError,
+    OpenAIError,
+    RateLimitError,
+)
+from pydantic import ValidationError
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.modules.ai.models import Conversation, Message
+from app.core.identity import Identity as User
 from app.modules.ai.catalog_service import AICatalogService
-from app.modules.ai.repository import ConversationRepository, MessageRepository
-from app.modules.ai.schemas import (
-    MessageCreate,
-    MessageResponse,
-    ConversationResponse,
-    SchemaGenerationRequest,
-    SchemaGenerationResponse,
-    InterfaceGenerationRequest,
-    InterfaceGenerationResponse,
-    AppGenerationRequest,
-    AppGenerationResponse,
-)
 from app.modules.ai.prompts import (
     SYSTEM_PROMPT_CHAT,
-    SYSTEM_PROMPT_SCHEMA_GENERATION,
     SYSTEM_PROMPT_INTERFACE_GENERATION,
+    SYSTEM_PROMPT_SCHEMA_GENERATION,
     SYSTEM_PROMPT_WORKFLOW_GENERATION,
 )
+from app.modules.ai.repository import ConversationRepository, MessageRepository
+from app.modules.ai.schemas import (
+    AppGenerationRequest,
+    AppGenerationResponse,
+    ConversationResponse,
+    InterfaceGenerationRequest,
+    InterfaceGenerationResponse,
+    MessageCreate,
+    MessageResponse,
+    SchemaGenerationRequest,
+    SchemaGenerationResponse,
+)
+from app.modules.ai.validation import (
+    AIServiceError,
+    ValidatedInterfaceOutput,
+    ValidatedSchemaOutput,
+    ValidatedWorkflowsOutput,
+    format_validation_errors,
+    parse_ai_json,
+)
+from app.modules.interface_builder.models import (
+    Composant,
+    Interface,
+    Page,
+    Section,
+    SectionType,  # noqa: F401
+    TypePage,
+)
+from app.modules.interface_builder.repository import InterfaceRepository
 from app.modules.projects.repository import ProjectRepository
-from app.modules.schema.models import Schema, TableSchema, Field, Relation
-from app.modules.schema.models import FieldType, RelationType
-from app.core.identity import Identity as User
-from app.modules.interface_builder.models import Interface, Page, Composant, TypePage, TypeComposant, Section, SectionType
-from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository, SectionRepository
-from app.modules.workflow_engine.repository import WorkflowRepository
+from app.modules.schema.models import Field, FieldType, Relation, RelationType, Schema, TableSchema
+from app.modules.workflow_engine.models import EtapeWorkflow, ExecutionWorkflow, Workflow
+
+logger = logging.getLogger(__name__)
 
 
 class AIService:
+    """Orchestrates chat and validated, transactional AI generation for projects."""
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self.conv_repo = ConversationRepository(db)
         self.msg_repo = MessageRepository(db)
         self.interface_repo = InterfaceRepository(db)
-        self.page_repo = PageRepository(db)
-        self.composant_repo = ComposantRepository(db)
-        self.section_repo = SectionRepository(db)
-        # Repli (catalogue vide) : configuration d'environnement. Le client réel est
-        # choisi à chaque requête depuis le catalogue géré par l'administrateur.
-        self._env_configured = bool(settings.AI_API_KEY)
+        self._env_api_key = (settings.AI_API_KEY or "").strip()
+        self._env_configured = bool(self._env_api_key)
         self.ai_client = AsyncOpenAI(
-            api_key=settings.AI_API_KEY or "not-configured",
+            api_key=self._env_api_key or "not-configured",
             base_url=settings.AI_BASE_URL,
-            timeout=60.0,
-            max_retries=1,
+            timeout=float(settings.AI_TIMEOUT_SECONDS),
+            max_retries=0,
         )
         self.model = settings.AI_MODEL
         self._model_selected = False
         self.catalog = AICatalogService(db)
 
-    async def _select_model(self, model_ref, current_user) -> None:
-        """Choisit le client/modèle d'IA : modèle demandé, sinon modèle par défaut
-        accessible avec l'abonnement. Une sélection explicite n'est pas écrasée par
-        les appels internes (ex. generate_app -> generate_schema)."""
+    def _sanitize(self, text: str) -> str:
+        if self._env_api_key:
+            return text.replace(self._env_api_key, "***")
+        return text
+
+    async def _select_model(self, model_ref: UUID | None, current_user: User) -> None:
+        """Select AI client from DB catalog if populated, else fall back to env vars."""
         if self._model_selected and model_ref is None:
             return
         resolved = await self.catalog.resolve(
-            model_ref, getattr(current_user, "plan", None), getattr(current_user, "role", None)
+            model_ref,
+            getattr(current_user, "plan", None),
+            getattr(current_user, "role", None),
         )
         if resolved:
             self.ai_client, self.model = resolved.client, resolved.model_id
         elif not self._env_configured:
-            raise HTTPException(
+            raise AIServiceError(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Aucune IA n'est configurée pour le moment. Contactez l'administrateur.",
+                detail="Le service IA n'est pas configuré (AI_API_KEY manquante).",
+                code="AI_NOT_CONFIGURED",
             )
         self._model_selected = True
 
-    @staticmethod
-    def _clean_json_response(raw_content: str) -> dict:
-        import re
-        import json
-
-        raw_content = raw_content.strip()
-
-        # Étape 1: Enlever les blocs markdown ```json...```
-        if "```json" in raw_content:
-            raw_content = raw_content.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw_content:
-            parts = raw_content.split("```")
-            if len(parts) >= 2:
-                raw_content = parts[1].strip()
-
-        # Étape 2: Essayer de parser directement
-        try:
-            return json.loads(raw_content)
-        except json.JSONDecodeError:
-            pass
-
-        # Étape 3: Extraire le JSON en trouvant { et }
-        # Cherche la première { et la dernière }
-        start_idx = raw_content.find('{')
-        end_idx = raw_content.rfind('}')
-
-        if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
-            json_string = raw_content[start_idx:end_idx + 1]
-            try:
-                return json.loads(json_string)
-            except json.JSONDecodeError:
-                pass
-
-        # Étape 4: Chercher [ et ] pour les arrays
-        start_idx = raw_content.find('[')
-        end_idx = raw_content.rfind(']')
-
-        if start_idx != -1 and end_idx != -1 and start_idx < end_idx:
-            json_string = raw_content[start_idx:end_idx + 1]
-            try:
-                return json.loads(json_string)
-            except json.JSONDecodeError:
-                pass
-
-        # Étape 5: Nettoyer les virgules mal placées
-        raw_content = re.sub(r',\s*}', '}', raw_content)
-        raw_content = re.sub(r',\s*]', ']', raw_content)
-
-        try:
-            return json.loads(raw_content)
-        except json.JSONDecodeError as e:
-            print(f"❌ JSON parsing failed after all attempts: {e}")
-            print(f"Raw content: {raw_content[:200]}...")
-            raise ValueError(f"Failed to parse JSON: {str(e)}")
-
-    @staticmethod
-    def _requested_devices_from_description(description: str) -> list[str]:
-        """Extrait les types d'appareils demandés dans la description"""
-        text = description.lower()
-        devices = []
-        if any(token in text for token in ["mobile", "phone", "smartphone", "téléphone"]):
-            devices.append("mobile")
-        if any(token in text for token in ["tablet", "tablette", "ipad"]):
-            devices.append("tablet")
-        if any(token in text for token in ["desktop", "web", "ordinateur", "bureau", "laptop", "pc"]):
-            devices.append("desktop")
-        return devices or ["desktop"]
-
-    @staticmethod
-    def _ensure_requested_device_pages(interface_json: dict, requested_devices: list[str]) -> dict:
-        """Duplique les pages pour chaque appareil demandé"""
-        pages = interface_json.get("pages", [])
-        if not pages:
-            return interface_json
-
-        # Grouper les pages existantes par device
-        by_device = {}
-        for page in pages:
-            device = str(page.get("device", "mobile")).lower()
-            by_device.setdefault(device, []).append(page)
-
-        # Commencer avec les pages existantes
-        normalized_pages = list(pages)
-
-        # Ajouter les pages manquantes pour les devices demandés
-        for device in requested_devices:
-            if device in by_device:
-                continue
-            source_pages = by_device.get("mobile") or normalized_pages
-            cloned_pages = []
-            for page in source_pages:
-                clone = {
-                    **page,
-                    "device": device,
-                    "is_home": bool(page.get("is_home", False)),
-                    "components": list(page.get("components", [])),
-                }
-                cloned_pages.append(clone)
-            normalized_pages.extend(cloned_pages)
-            by_device[device] = cloned_pages
-
-        interface_json["pages"] = normalized_pages
-        return interface_json
-
-    async def chat(self, project_id: UUID, data: MessageCreate, current_user: User) -> MessageResponse:
-        await self._select_model(data.model_id, current_user)
-        start_time = time.time()
-        print(f"🚀 [AI CHAT] Starting request for project {project_id}...")
-        project_repo = ProjectRepository(self.db)
-        project = await project_repo.get_by_tracking_id(project_id)
+    async def _require_project(self, project_id: UUID):
+        project = await ProjectRepository(self.db).get_by_tracking_id(project_id)
         if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-        conversation = await self.conv_repo.get_or_create(project_id)
-        await self.msg_repo.create(conversation_id=conversation.tracking_id, role="user", content=data.content)
-        history = await self.msg_repo.get_by_conversation(conversation.tracking_id, limit=20)
-        project_context = await self._build_project_context(project_id)
-        messages = [{"role": "system", "content": SYSTEM_PROMPT_CHAT}]
-        if project_context:
-            messages.append({"role": "system", "content": project_context})
-        for msg in history:
-            messages.append({"role": msg.role.value, "content": msg.content})
-        tools = [
-            {"type": "function", "function": {"name": "generate_app", "description": "Generate both database schema and user interface in one go.", "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Complete details about the data and the screens"}}, "required": ["description"]}}},
-            {"type": "function", "function": {"name": "generate_schema", "description": "Generate only database tables and fields from description", "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Details about the tables and data structure"}}, "required": ["description"]}}},
-            {"type": "function", "function": {"name": "generate_interface", "description": "Generate only UI pages and components from description", "parameters": {"type": "object", "properties": {"description": {"type": "string", "description": "Details about the screens and UI elements"}}, "required": ["description"]}}}
-        ]
-        try:
-            response = await self.ai_client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                temperature=0.3,
-                max_tokens=4096
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Projet introuvable.")
+        return project
+
+    async def _project_has_content(self, project_id: UUID) -> bool:
+        table_exists = await self.db.execute(
+            select(TableSchema.tracking_id)
+            .join(Schema, TableSchema.schema_id == Schema.tracking_id)
+            .where(Schema.project_id == project_id)
+            .limit(1)
+        )
+        if table_exists.first() is not None:
+            return True
+
+        page_exists = await self.db.execute(
+            select(Page.tracking_id)
+            .join(Interface, Page.interface_id == Interface.tracking_id)
+            .where(Interface.project_id == project_id)
+            .limit(1)
+        )
+        return page_exists.first() is not None
+
+    async def _ensure_replaceable(self, project_id: UUID, replace: bool) -> None:
+        if not replace and await self._project_has_content(project_id):
+            raise AIServiceError(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Le projet contient déjà un schéma ou une interface. Utilisez ?replace=true pour remplacer.",
+                code="PROJECT_NOT_EMPTY",
             )
-            response_message = response.choices[0].message
-            tool_calls = response_message.tool_calls
-            ai_content = response_message.content or ""
-            if tool_calls:
-                tool_results = []
-                for tool_call in tool_calls:
-                    function_name = tool_call.function.name
-                    try:
-                        print(f"🛠️ [AI TOOL] Calling {function_name}...")
-                        f_start = time.time()
-                        function_args = json.loads(tool_call.function.arguments)
-                        if function_name == "generate_app":
-                            await self.generate_app(project_id, AppGenerationRequest(**function_args), current_user)
-                            tool_results.append("✅ Application complète générée avec succès.")
-                        elif function_name == "generate_schema":
-                            await self.generate_schema(project_id, SchemaGenerationRequest(**function_args), current_user)
-                            tool_results.append("✅ Les informations (données) ont été structurées.")
-                        elif function_name == "generate_interface":
-                            await self.generate_interface(project_id, InterfaceGenerationRequest(**function_args), current_user)
-                            tool_results.append("✅ L'interface utilisateur (les écrans) a été créée.")
-                        print(f"⏱️ [AI TOOL] {function_name} finished in {time.time() - f_start:.2f}s")
-                    except Exception as e:
-                        print(f"❌ [AI TOOL ERROR] Tool '{function_name}' failed: {str(e)}")
-                        tool_results.append(f"⚠️ J'ai rencontré une erreur interne en essayant de '{function_name}'.")
-                if tool_results:
-                    ai_content = (ai_content or "") + "\n\n---\n\n" + "\n".join(tool_results)
-            if not ai_content:
-                ai_content = "Désolé, je n'ai pas pu générer de réponse."
-        except Exception as e:
-            print(f"❌ Chat Tool Error: {e}")
-            err_str = str(e)
-            if "timed out" in err_str.lower() or "timeout" in err_str.lower():
-                ai_content = "⏱️ La requête a pris trop de temps. Le service IA est peut-être surchargé, réessaie dans quelques instants."
-                ai_message = await self.msg_repo.create(conversation_id=(await self.conv_repo.get_or_create(project_id)).tracking_id, role="assistant", content=ai_content)
-                await self.db.commit()
-                return MessageResponse.model_validate(ai_message)
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {err_str}")
-        ai_message = await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=ai_content)
-        await self.db.commit()
-        print(f"🏁 [AI CHAT] Total execution time: {time.time() - start_time:.2f}s")
-        return MessageResponse.model_validate(ai_message)
 
-    async def generate_schema(self, project_id: UUID, data: SchemaGenerationRequest, current_user: User) -> SchemaGenerationResponse:
-        await self._select_model(data.model_id, current_user)
-        project_repo = ProjectRepository(self.db)
-        project = await project_repo.get_by_tracking_id(project_id)
-        if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    async def _call_llm(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float,
+        max_tokens: int,
+        tools: list[dict] | None = None,
+        tool_choice: str | None = None,
+    ):
+        kwargs: dict = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if tools is not None:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice or "auto"
         try:
-            response = await self.ai_client.chat.completions.create(model=self.model, messages=[{"role": "system", "content": SYSTEM_PROMPT_SCHEMA_GENERATION}, {"role": "user", "content": data.description}], temperature=0.1, max_tokens=8192)
-            raw_content = response.choices[0].message.content
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {str(e)}")
-        try:
-            schema_json = self._clean_json_response(raw_content)
-        except Exception as e:
-            print(f"❌ AI JSON Parsing Error in generate_schema: {e}")
-            print(f"Raw content was: {raw_content[:500]}...")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI returned invalid JSON for schema: {str(e)}")
-        schema_stmt = select(Schema).where(Schema.project_id == project_id)
-        schema_result = await self.db.execute(schema_stmt)
-        schema = schema_result.scalar_one_or_none()
+            return await asyncio.wait_for(
+                self.ai_client.chat.completions.create(**kwargs),
+                timeout=float(settings.AI_TIMEOUT_SECONDS) + 1.0,
+            )
+        except AuthenticationError as exc:
+            logger.warning("AI provider authentication failed: %s", type(exc).__name__)
+            raise AIServiceError(
+                status.HTTP_502_BAD_GATEWAY,
+                "Authentification refusée par le fournisseur IA.",
+                "AI_PROVIDER_AUTH",
+            )
+        except RateLimitError as exc:
+            logger.warning("AI provider rate limit: %s", type(exc).__name__)
+            raise AIServiceError(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Le fournisseur IA limite temporairement les requêtes.",
+                "AI_RATE_LIMITED",
+            )
+        except (APITimeoutError, httpx.TimeoutException, asyncio.TimeoutError, TimeoutError) as exc:
+            logger.warning("AI provider timeout: %s", type(exc).__name__)
+            raise AIServiceError(
+                status.HTTP_504_GATEWAY_TIMEOUT,
+                "Le fournisseur IA n'a pas répondu dans le délai imparti.",
+                "AI_TIMEOUT",
+            )
+        except APIStatusError as exc:
+            code_num = getattr(exc, "status_code", 502)
+            logger.warning("AI provider status error: HTTP %s", code_num)
+            if code_num == 401:
+                raise AIServiceError(
+                    status.HTTP_502_BAD_GATEWAY,
+                    "Authentification refusée par le fournisseur IA.",
+                    "AI_PROVIDER_AUTH",
+                )
+            if code_num == 429:
+                raise AIServiceError(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "Le fournisseur IA limite temporairement les requêtes.",
+                    "AI_RATE_LIMITED",
+                )
+            raise AIServiceError(
+                status.HTTP_502_BAD_GATEWAY,
+                f"Le fournisseur IA a renvoyé une erreur (HTTP {code_num}).",
+                "AI_PROVIDER_ERROR",
+            )
+        except (APIConnectionError, OpenAIError, httpx.RequestError) as exc:
+            logger.warning("AI provider connection error: %s", self._sanitize(type(exc).__name__))
+            raise AIServiceError(
+                status.HTTP_502_BAD_GATEWAY,
+                "Erreur de communication avec le fournisseur IA.",
+                "AI_PROVIDER_ERROR",
+            )
+
+    async def _generate_validated(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        schema_cls,
+        *,
+        temperature: float,
+        max_tokens: int,
+    ):
+        """Call LLM and validate JSON against *schema_cls*, retrying once with exact errors."""
+        messages: list[dict[str, str]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+        last_errors: list[str] = []
+
+        for attempt in range(2):
+            response = await self._call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+            raw_content = (response.choices[0].message.content or "") if response.choices else ""
+            try:
+                parsed = parse_ai_json(raw_content)
+                validated = schema_cls.model_validate(parsed)
+                return validated, parsed
+            except (ValueError, ValidationError) as exc:
+                last_errors = format_validation_errors(exc)
+                if attempt == 0:
+                    errors_text = "\n".join(f"- {err}" for err in last_errors)
+                    messages.append({"role": "assistant", "content": raw_content})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Ta réponse JSON précédente contient les erreurs suivantes :\n"
+                                f"{errors_text}\n"
+                                "Corrige ces erreurs et réponds UNIQUEMENT avec un objet JSON valide."
+                            ),
+                        }
+                    )
+
+        raise AIServiceError(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="La sortie générée par l'IA est invalide : " + "; ".join(last_errors),
+            code="AI_INVALID_OUTPUT",
+            errors=last_errors,
+        )
+
+    async def _clear_schema(self, project_id: UUID) -> None:
+        schema_ids = select(Schema.tracking_id).where(Schema.project_id == project_id)
+        table_ids = select(TableSchema.tracking_id).where(TableSchema.schema_id.in_(schema_ids))
+        await self.db.execute(delete(Field).where(Field.table_id.in_(table_ids)))
+        await self.db.execute(delete(Relation).where(Relation.schema_id.in_(schema_ids)))
+        await self.db.execute(delete(TableSchema).where(TableSchema.schema_id.in_(schema_ids)))
+        await self.db.execute(delete(Schema).where(Schema.project_id == project_id))
+        await self.db.flush()
+
+    async def _clear_interface(self, project_id: UUID) -> None:
+        iface_ids = select(Interface.tracking_id).where(Interface.project_id == project_id)
+        page_ids = select(Page.tracking_id).where(Page.interface_id.in_(iface_ids))
+        await self.db.execute(delete(Composant).where(Composant.page_id.in_(page_ids)))
+        await self.db.execute(delete(Section).where(Section.page_id.in_(page_ids)))
+        await self.db.execute(delete(Page).where(Page.interface_id.in_(iface_ids)))
+        await self.db.execute(delete(Interface).where(Interface.project_id == project_id))
+        await self.db.flush()
+
+    async def _clear_workflows(self, project_id: UUID) -> None:
+        wf_ids = select(Workflow.tracking_id).where(Workflow.project_id == project_id)
+        await self.db.execute(delete(EtapeWorkflow).where(EtapeWorkflow.workflow_id.in_(wf_ids)))
+        await self.db.execute(delete(ExecutionWorkflow).where(ExecutionWorkflow.workflow_id.in_(wf_ids)))
+        await self.db.execute(delete(Workflow).where(Workflow.project_id == project_id))
+        await self.db.flush()
+
+    async def _persist_schema(self, project_id: UUID, validated: ValidatedSchemaOutput, *, replace: bool) -> tuple[list[str], int]:
+        if replace:
+            await self._clear_schema(project_id)
+        schema = (await self.db.execute(select(Schema).where(Schema.project_id == project_id))).scalar_one_or_none()
         if not schema:
             schema = Schema(project_id=project_id)
             self.db.add(schema)
             await self.db.flush()
-            await self.db.refresh(schema)
-        
-        # Smart synchronization: delete old schema before creating new one
-        existing_tables = await self.db.execute(select(TableSchema).where(TableSchema.schema_id == schema.tracking_id))
-        for table in existing_tables.scalars().all():
-            await self.db.delete(table)
-        await self.db.flush()
 
-        table_mapping = {}
-        for table_data in schema_json.get("tables", []):
-            table_name = table_data.get("name")
-            display_name = table_data.get("display_name", table_name)
-            table = TableSchema(schema_id=schema.tracking_id, name=table_name, display_name=display_name)
+        table_mapping: dict[str, UUID] = {}
+        for t in validated.tables:
+            table = TableSchema(
+                schema_id=schema.tracking_id,
+                name=t.name,
+                display_name=t.display_name or t.name.replace("_", " ").title(),
+            )
             self.db.add(table)
             await self.db.flush()
-            await self.db.refresh(table)
-            table_mapping[table_name] = table.tracking_id
-            for field_data in table_data.get("fields", []):
-                field_name = field_data.get("name")
-                field_type = field_data.get("type", "text")
-                try:
-                    field_type_enum = FieldType[field_type.upper()]
-                except KeyError:
-                    field_type_enum = FieldType.TEXT
-                field_config = {"default": field_data.get("default")}
-                field = Field(table_id=table.tracking_id, name=field_name, display_name=field_name.replace("_", " ").title(), type=field_type_enum, required=field_data.get("required", False), unique=field_data.get("unique", False), config=field_config)
+            table_mapping[t.name] = table.tracking_id
+            for idx, f in enumerate(t.fields):
+                field_type_enum = FieldType(f.type)
+                field = Field(
+                    table_id=table.tracking_id,
+                    name=f.name,
+                    display_name=f.name.replace("_", " ").title(),
+                    type=field_type_enum,
+                    required=f.required,
+                    unique=f.unique,
+                    config={"default": f.default} if f.default is not None else {},
+                    order=idx,
+                )
                 self.db.add(field)
             await self.db.flush()
-        # Filtrage de sécurité : ignorer toute relation complexe résiduelle (MANY_TO_MANY / ONE_TO_MANY)
-        # La base doit rester strictement simple et fondée sur des champs de référence directe (UUID/ID)
+
         relations_count = 0
-        raw_relations = schema_json.get("relations", [])
-        for relation_data in raw_relations:
-            relation_type = str(relation_data.get("type", "")).lower().replace("-", "_")
-            if "many_to_many" in relation_type or "one_to_many" in relation_type:
-                print(f"⚠️ [AI SECURITY FILTER] Ignored complex relation '{relation_type}' between {relation_data.get('from_table')} and {relation_data.get('to_table')}")
-                continue
-            
-            from_table = relation_data.get("from_table")
-            to_table = relation_data.get("to_table")
-            if from_table in table_mapping and to_table in table_mapping:
-                try:
-                    relation_type_enum = RelationType[relation_type.upper()]
-                except KeyError:
-                    relation_type_enum = RelationType.ONE_TO_ONE
-                relation_name = relation_data.get("name") or f"{from_table}_{relation_type}_{to_table}"
-                relation = Relation(
-                    schema_id=schema.tracking_id, 
-                    source_table_id=table_mapping[from_table], 
-                    target_table_id=table_mapping[to_table], 
-                    name=relation_name, 
-                    type=relation_type_enum, 
-                    description=relation_data.get("description"), 
-                    source_key=relation_data.get("source_key", "id"), 
-                    target_key=relation_data.get("target_key", "id")
-                )
-                self.db.add(relation)
-                relations_count += 1
-            await self.db.flush()
-        conversation = await self.conv_repo.get_or_create(project_id)
-        table_names = list(table_mapping.keys())
-        summary = f"I analyzed your description and created {len(table_names)} tables: {', '.join(table_names)}. You can now see them in the Tables tab."
-        await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
-        await self.db.commit()
-        return SchemaGenerationResponse(success=True, message=f"Successfully created {len(table_mapping)} tables and {relations_count} relations", tables_created=table_names, relations_created=relations_count, raw_schema=schema_json)
-
-    async def generate_interface(self, project_id: UUID, data: InterfaceGenerationRequest, current_user: User, context_tables: list[str] = None) -> InterfaceGenerationResponse:
-        await self._select_model(data.model_id, current_user)
-        project_repo = ProjectRepository(self.db)
-        project = await project_repo.get_by_tracking_id(project_id)
-        if not project:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-        if not context_tables:
-            schema_stmt = select(Schema).where(Schema.project_id == project_id)
-            schema = (await self.db.execute(schema_stmt)).scalar_one_or_none()
-            if not schema or not (await self.db.execute(select(TableSchema).where(TableSchema.schema_id == schema.tracking_id).limit(1))).first():
-                print("⚠️ [ARCH FIX] No schema found. Generating schema before interface.")
-                schema_resp = await self.generate_schema(project_id, SchemaGenerationRequest(description=data.description), current_user)
-                context_tables = schema_resp.tables_created
-
-        prompt_description = data.description
-        if context_tables:
-            prompt_description += f"\n\nIMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. For forms or lists, add a 'connecte_a' property pointing to the table name."
-
-        # 1. Appeler Groq avec SYSTEM_PROMPT_INTERFACE_GENERATION
-        try:
-            print(f"📤 [INTERFACE] Sending prompt with {len(context_tables or [])} tables: {context_tables}")
-            response = await self.ai_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_INTERFACE_GENERATION},
-                    {"role": "user", "content": prompt_description}
-                ],
-                temperature=0.2,
-                max_tokens=8192
+        for rel in validated.relations:
+            rel_type_enum = RelationType(rel.type)
+            relation = Relation(
+                schema_id=schema.tracking_id,
+                source_table_id=table_mapping[rel.from_table],
+                target_table_id=table_mapping[rel.to_table],
+                name=rel.name or f"{rel.from_table}_{rel.type}_{rel.to_table}",
+                type=rel_type_enum,
+                description=rel.description,
+                source_key=rel.source_key,
+                target_key=rel.target_key,
             )
-            raw_content = response.choices[0].message.content
-            print(f"📥 [INTERFACE] Raw AI response (first 1000 chars):\n{raw_content[:1000]}")
-        except Exception as e:
-            print(f"❌ [INTERFACE] API error: {e}")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI API error: {str(e)}")
+            self.db.add(relation)
+            relations_count += 1
+        await self.db.flush()
+        return list(table_mapping.keys()), relations_count
 
-        # 2. Parser le JSON retourné
-        try:
-            interface_json = self._clean_json_response(raw_content)
-            print(f"✅ [INTERFACE] Parsed JSON: {interface_json}")
-            print(f"✅ [INTERFACE] Pages count: {len(interface_json.get('pages', []))}")
-            for i, page in enumerate(interface_json.get("pages", [])):
-                print(f"  Page {i}: {page.get('name')} - Sections: {len(page.get('sections', []))}")
-        except Exception as e:
-            print(f"❌ AI JSON Parsing Error: {e}")
-            print(f"Raw content was: {raw_content[:500]}...")
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"AI returned invalid JSON: {str(e)}")
-
-        requested_devices = self._requested_devices_from_description(data.description)
-        interface_json = self._ensure_requested_device_pages(interface_json, requested_devices)
-
-        interface = await self.interface_repo.get_by_project_id(project_id)
+    async def _persist_interface(
+        self,
+        project_id: UUID,
+        validated: ValidatedInterfaceOutput,
+        *,
+        replace: bool,
+    ) -> tuple[list[str], int]:
+        if replace:
+            await self._clear_interface(project_id)
+        interface = (
+            await self.db.execute(select(Interface).where(Interface.project_id == project_id))
+        ).scalar_one_or_none()
         if not interface:
-            try:
-                interface = await self.interface_repo.create(project_id)
-            except IntegrityError:
-                await self.db.rollback()
-                interface = await self.interface_repo.get_by_project_id(project_id)
-                if not interface: raise
+            interface = Interface(project_id=project_id, version=1)
+            self.db.add(interface)
+            await self.db.flush()
 
-        existing_pages = await self.page_repo.get_by_interface_id(interface.tracking_id)
-        existing_pages_lookup = {}
-        for p in existing_pages:
-            if p.chemin:
-                existing_pages_lookup[p.chemin] = p
-            if p.nom:
-                existing_pages_lookup[p.nom.lower().strip()] = p
-
-        page_type_mapping = {"mobile": TypePage.MOBILE, "tablet": TypePage.TABLET, "desktop": TypePage.DESKTOP}
-        pages_created = []
+        page_type_mapping = {
+            "mobile": TypePage.MOBILE,
+            "tablet": TypePage.TABLET,
+            "desktop": TypePage.DESKTOP,
+        }
+        pages_created: list[str] = []
         sections_created = 0
+        for page_idx, page_data in enumerate(validated.pages):
+            page = Page(
+                interface_id=interface.tracking_id,
+                nom=page_data.name,
+                chemin=page_data.path,
+                type_page=page_type_mapping.get(page_data.device, TypePage.DESKTOP),
+                est_accueil=bool(page_data.is_home or page_idx == 0),
+                ordre=page_idx,
+            )
+            self.db.add(page)
+            await self.db.flush()
+            pages_created.append(page_data.name)
 
-        # 3. Pour chaque page dans pages[]
-        for page_index, page_data in enumerate(interface_json.get("pages", [])):
-            page_name = page_data.get("name") or f"Page {page_index + 1}"
-            page_path = page_data.get("path") or f"/page-{page_index + 1}"
-            page_device = str(page_data.get("device", "desktop")).lower()
-            norm_name = page_name.lower().strip()
-
-            # Smart merge: reuse existing page if same path OR same normalized name
-            existing_page = existing_pages_lookup.get(page_path) or existing_pages_lookup.get(norm_name)
-
-            if existing_page:
-                page = existing_page
-                page.nom = page_name
-                page.chemin = page_path
-                page.type_page = page_type_mapping.get(page_device, TypePage.DESKTOP)
-                # Clear old sections for this updated page
-                old_sections = (await self.db.execute(select(Section).where(Section.page_id == page.tracking_id))).scalars().all()
-                for s in old_sections:
-                    await self.db.delete(s)
-                await self.db.flush()
-            else:
-                page = Page(
-                    interface_id=interface.tracking_id,
-                    nom=page_name,
-                    chemin=page_path,
-                    type_page=page_type_mapping.get(page_device, TypePage.DESKTOP),
-                    est_accueil=bool(page_data.get("is_home", page_index == 0)),
-                    ordre=len(existing_pages_lookup) + page_index
-                )
-                self.db.add(page)
-                await self.db.flush()
-                await self.db.refresh(page)
-                existing_pages_lookup[page_path] = page
-                existing_pages_lookup[norm_name] = page
-
-            pages_created.append(page_name)
-
-            # 4. Pour chaque section dans page["sections"]
-            for section_index, section_data in enumerate(page_data.get("sections", [])):
-                raw_type = str(section_data.get("type", "text-section")).lower()
-                valid_types = {e.value for e in SectionType}
-
-                if raw_type in valid_types:
-                    section_type = raw_type
-                elif "hero" in raw_type:
-                    section_type = SectionType.HERO.value
-                elif "nav" in raw_type or "header" in raw_type:
-                    section_type = SectionType.NAVBAR.value
-                elif "table" in raw_type or "grid" in raw_type and "card" not in raw_type:
-                    section_type = SectionType.DATA_TABLE.value
-                elif "stat" in raw_type or "kpi" in raw_type:
-                    section_type = SectionType.STATS_ROW.value
-                elif "form" in raw_type:
-                    section_type = SectionType.FORM.value
-                elif "card" in raw_type:
-                    section_type = SectionType.CARD_GRID.value
-                else:
-                    section_type = SectionType.TEXT_SECTION.value
-
-                section_ordre = section_data.get("ordre", section_index)
-                section_config = section_data.get("config", {})
-                section_connecte_a = section_config.get("table")
-                section_title = section_config.get("title")
-
+            for sec_idx, sec in enumerate(page_data.sections):
+                sec_connecte_a = sec.connecte_a or (sec.config.get("table") if isinstance(sec.config, dict) else None)
+                sec_title = sec.title or (sec.config.get("title") if isinstance(sec.config, dict) else None)
                 section = Section(
                     page_id=page.tracking_id,
-                    type=section_type,
-                    ordre=section_ordre,
-                    config=section_config,
-                    connecte_a=section_connecte_a,
-                    title=section_title
+                    type=sec.type,
+                    ordre=sec.ordre if sec.ordre is not None else sec_idx,
+                    config=sec.config or {},
+                    connecte_a=sec_connecte_a,
+                    title=sec_title,
                 )
                 self.db.add(section)
                 sections_created += 1
-
-        # 5. Retourner le nombre de pages et sections créées
         await self.db.flush()
+        return pages_created, sections_created
+
+    async def _persist_workflows(
+        self,
+        project_id: UUID,
+        validated: ValidatedWorkflowsOutput,
+        *,
+        replace: bool,
+    ) -> int:
+        if replace:
+            await self._clear_workflows(project_id)
+        count = 0
+        for wf_data in validated.workflows:
+            workflow = Workflow(
+                project_id=project_id,
+                nom=wf_data.nom,
+                description=wf_data.description,
+                actif=True,
+            )
+            self.db.add(workflow)
+            await self.db.flush()
+            for etape_data in wf_data.etapes:
+                etape = EtapeWorkflow(
+                    workflow_id=workflow.tracking_id,
+                    type=etape_data.type,
+                    ordre=etape_data.ordre,
+                    config=etape_data.config,
+                )
+                self.db.add(etape)
+            count += 1
+        await self.db.flush()
+        return count
+
+    async def _existing_table_names(self, project_id: UUID) -> list[str]:
+        rows = await self.db.execute(
+            select(TableSchema.name)
+            .join(Schema, TableSchema.schema_id == Schema.tracking_id)
+            .where(Schema.project_id == project_id)
+            .order_by(TableSchema.created_at)
+        )
+        return [r[0] for r in rows.all()]
+
+    async def chat(self, project_id: UUID, data: MessageCreate, current_user: User) -> MessageResponse:
+        await self._select_model(data.model_id, current_user)
+        await self._require_project(project_id)
+        start_time = time.time()
 
         conversation = await self.conv_repo.get_or_create(project_id)
-        summary = f"I created {len(pages_created)} pages and {sections_created} sections for your interface. You can review them in the Interface tab."
-        await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
+        await self.msg_repo.create(conversation_id=conversation.tracking_id, role="user", content=data.content)
+        history = await self.msg_repo.get_by_conversation(conversation.tracking_id, limit=20)
+        project_context = await self._build_project_context(project_id)
+
+        messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT_CHAT}]
+        if project_context:
+            messages.append({"role": "system", "content": project_context})
+        for msg in history:
+            messages.append({"role": msg.role.value, "content": msg.content})
+
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_app",
+                    "description": "Generate both database schema and user interface in one go.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string", "description": "Complete details about the data and the screens"}
+                        },
+                        "required": ["description"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_schema",
+                    "description": "Generate only database tables and fields from description",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string", "description": "Details about the tables and data structure"}
+                        },
+                        "required": ["description"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_interface",
+                    "description": "Generate only UI pages and components from description",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "description": {"type": "string", "description": "Details about the screens and UI elements"}
+                        },
+                        "required": ["description"],
+                    },
+                },
+            },
+        ]
+
+        response = await self._call_llm(
+            messages,
+            temperature=0.3,
+            max_tokens=4096,
+            tools=tools,
+            tool_choice="auto",
+        )
+        response_message = response.choices[0].message
+        tool_calls = response_message.tool_calls
+        ai_content = response_message.content or ""
+
+        if tool_calls:
+            tool_results = []
+            for tool_call in tool_calls:
+                function_name = tool_call.function.name
+                try:
+                    function_args = json.loads(tool_call.function.arguments)
+                    if function_name == "generate_app":
+                        await self.generate_app(project_id, AppGenerationRequest(**function_args), current_user)
+                        tool_results.append("Application complète générée avec succès.")
+                    elif function_name == "generate_schema":
+                        await self.generate_schema(project_id, SchemaGenerationRequest(**function_args), current_user)
+                        tool_results.append("Les tables de données ont été générées avec succès.")
+                    elif function_name == "generate_interface":
+                        await self.generate_interface(project_id, InterfaceGenerationRequest(**function_args), current_user)
+                        tool_results.append("L'interface utilisateur a été générée avec succès.")
+                except AIServiceError as exc:
+                    tool_results.append(f"{exc.code}: {exc.detail}")
+                except Exception as exc:
+                    logger.warning("Chat tool '%s' failed: %s", function_name, self._sanitize(type(exc).__name__))
+                    tool_results.append(f"Erreur lors de l'exécution de '{function_name}'.")
+            if tool_results:
+                ai_content = (ai_content + "\n\n---\n\n" + "\n".join(tool_results)).strip()
+
+        if not ai_content:
+            ai_content = "Désolé, je n'ai pas pu générer de réponse."
+
+        ai_message = await self.msg_repo.create(
+            conversation_id=conversation.tracking_id,
+            role="assistant",
+            content=ai_content,
+        )
         await self.db.commit()
+        logger.info("AI chat finished in %.2fs", time.time() - start_time)
+        return MessageResponse.model_validate(ai_message)
+
+    async def generate_schema(
+        self,
+        project_id: UUID,
+        data: SchemaGenerationRequest,
+        current_user: User,
+        *,
+        replace: bool = False,
+    ) -> SchemaGenerationResponse:
+        await self._select_model(data.model_id, current_user)
+        await self._require_project(project_id)
+        await self._ensure_replaceable(project_id, replace)
+
+        validated, raw_schema = await self._generate_validated(
+            SYSTEM_PROMPT_SCHEMA_GENERATION,
+            data.description,
+            ValidatedSchemaOutput,
+            temperature=0.1,
+            max_tokens=8192,
+        )
+
+        try:
+            table_names, relations_count = await self._persist_schema(project_id, validated, replace=replace)
+            conversation = await self.conv_repo.get_or_create(project_id)
+            summary = f"Schéma généré avec {len(table_names)} table(s) : {', '.join(table_names)}."
+            await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
+
+        return SchemaGenerationResponse(
+            success=True,
+            message=f"Successfully created {len(table_names)} tables and {relations_count} relations",
+            tables_created=table_names,
+            relations_created=relations_count,
+            raw_schema=raw_schema,
+        )
+
+    async def generate_interface(
+        self,
+        project_id: UUID,
+        data: InterfaceGenerationRequest,
+        current_user: User,
+        context_tables: list[str] | None = None,
+        *,
+        replace: bool = False,
+    ) -> InterfaceGenerationResponse:
+        await self._select_model(data.model_id, current_user)
+        await self._require_project(project_id)
+        await self._ensure_replaceable(project_id, replace)
+
+        tables_for_prompt = context_tables if context_tables is not None else await self._existing_table_names(project_id)
+        prompt_description = data.description
+        if tables_for_prompt:
+            prompt_description += (
+                f"\n\nIMPORTANT: Utilize these existing database tables for data bindings: {', '.join(tables_for_prompt)}. "
+                "For forms or lists, add a 'connecte_a' property pointing to the table name."
+            )
+
+        validated, raw_interface = await self._generate_validated(
+            SYSTEM_PROMPT_INTERFACE_GENERATION,
+            prompt_description,
+            ValidatedInterfaceOutput,
+            temperature=0.2,
+            max_tokens=8192,
+        )
+
+        try:
+            pages_created, sections_created = await self._persist_interface(project_id, validated, replace=replace)
+            conversation = await self.conv_repo.get_or_create(project_id)
+            summary = f"Interface générée avec {len(pages_created)} page(s) et {sections_created} section(s)."
+            await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
 
         return InterfaceGenerationResponse(
             success=True,
             message=f"Successfully created {len(pages_created)} pages and {sections_created} sections",
             pages_created=pages_created,
             components_created=sections_created,
-            raw_interface=interface_json
+            raw_interface=raw_interface,
         )
 
-    async def generate_app(self, project_id: UUID, data: AppGenerationRequest, current_user: User) -> AppGenerationResponse:
-        await self._select_model(data.model_id, current_user)
-        schema_resp = await self.generate_schema(project_id, SchemaGenerationRequest(description=data.description), current_user)
-        interface_resp = await self.generate_interface(project_id, InterfaceGenerationRequest(description=data.description), current_user, context_tables=schema_resp.tables_created)
-        workflows_count = await self.generate_workflows(project_id, data.description, current_user)
-        return AppGenerationResponse(success=True, message=f"Génération terminée. {len(schema_resp.tables_created)} tables, {len(interface_resp.pages_created)} pages, {workflows_count} workflows.", db_schema=schema_resp, interface=interface_resp, workflows_created=workflows_count)
-
-    async def generate_workflows(
+    async def generate_app(
         self,
         project_id: UUID,
-        description: str,
+        data: AppGenerationRequest,
         current_user: User,
-    ) -> int:
-        """Génère les workflows depuis la description."""
-        from app.modules.workflow_engine.models import Workflow, EtapeWorkflow
+        *,
+        replace: bool = False,
+    ) -> AppGenerationResponse:
+        await self._select_model(data.model_id, current_user)
+        await self._require_project(project_id)
+        await self._ensure_replaceable(project_id, replace)
 
+        # 1. Appels et validations IA complets AVANT toute écriture en base (atomicité garantie)
+        schema_validated, raw_schema = await self._generate_validated(
+            SYSTEM_PROMPT_SCHEMA_GENERATION,
+            data.description,
+            ValidatedSchemaOutput,
+            temperature=0.1,
+            max_tokens=8192,
+        )
+
+        context_tables = [t.name for t in schema_validated.tables]
+        iface_prompt = data.description
+        if context_tables:
+            iface_prompt += (
+                f"\n\nIMPORTANT: Utilize these existing database tables for data bindings: {', '.join(context_tables)}. "
+                "For forms or lists, add a 'connecte_a' property pointing to the table name."
+            )
+        interface_validated, raw_interface = await self._generate_validated(
+            SYSTEM_PROMPT_INTERFACE_GENERATION,
+            iface_prompt,
+            ValidatedInterfaceOutput,
+            temperature=0.2,
+            max_tokens=8192,
+        )
+
+        workflows_validated, _ = await self._generate_validated(
+            SYSTEM_PROMPT_WORKFLOW_GENERATION,
+            data.description,
+            ValidatedWorkflowsOutput,
+            temperature=0.1,
+            max_tokens=2000,
+        )
+
+        # 2. Écriture atomique complète (remplacement + schéma + interface + workflows)
         try:
-            response = await self.ai_client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_WORKFLOW_GENERATION},
-                    {"role": "user", "content": description}
-                ],
-                temperature=0.1,
-                max_tokens=2000
+            table_names, relations_count = await self._persist_schema(project_id, schema_validated, replace=replace)
+            pages_created, sections_created = await self._persist_interface(project_id, interface_validated, replace=replace)
+            workflows_count = await self._persist_workflows(project_id, workflows_validated, replace=replace)
+
+            conversation = await self.conv_repo.get_or_create(project_id)
+            summary = (
+                f"Application générée : {len(table_names)} table(s), "
+                f"{len(pages_created)} page(s), {workflows_count} workflow(s)."
             )
-            raw_content = response.choices[0].message.content
-            workflows_json = self._clean_json_response(raw_content)
-        except Exception as e:
-            print(f"⚠️ [AI WORKFLOW] Error generating workflows: {e}")
-            return 0
+            await self.msg_repo.create(conversation_id=conversation.tracking_id, role="assistant", content=summary)
+            await self.db.commit()
+        except Exception:
+            await self.db.rollback()
+            raise
 
-        count = 0
-        for wf_data in workflows_json.get("workflows", []):
-            workflow = Workflow(
-                project_id=project_id,
-                nom=wf_data.get("nom", "Workflow"),
-                description=wf_data.get("description"),
-                actif=True,
-            )
-            self.db.add(workflow)
-            await self.db.flush()
-            await self.db.refresh(workflow)
-
-            for etape_data in wf_data.get("etapes", []):
-                etape = EtapeWorkflow(
-                    workflow_id=workflow.tracking_id,
-                    type=etape_data.get("type", "declencheur"),
-                    ordre=etape_data.get("ordre", 0),
-                    config=etape_data.get("config", {}),
-                )
-                self.db.add(etape)
-            count += 1
-
-        await self.db.commit()
-        return count
+        schema_resp = SchemaGenerationResponse(
+            success=True,
+            message=f"Successfully created {len(table_names)} tables and {relations_count} relations",
+            tables_created=table_names,
+            relations_created=relations_count,
+            raw_schema=raw_schema,
+        )
+        interface_resp = InterfaceGenerationResponse(
+            success=True,
+            message=f"Successfully created {len(pages_created)} pages and {sections_created} sections",
+            pages_created=pages_created,
+            components_created=sections_created,
+            raw_interface=raw_interface,
+        )
+        return AppGenerationResponse(
+            success=True,
+            message=(
+                f"Génération terminée. {len(table_names)} tables, "
+                f"{len(pages_created)} pages, {workflows_count} workflows."
+            ),
+            db_schema=schema_resp,
+            interface=interface_resp,
+            workflows_created=workflows_count,
+        )
 
     async def get_history(self, project_id: UUID) -> ConversationResponse:
         conversation = await self.conv_repo.get_or_create(project_id)
@@ -577,20 +722,36 @@ class AIService:
 
     async def _build_project_context(self, project_id: UUID) -> str:
         parts: list[str] = []
-        schema_stmt = select(Schema).where(Schema.project_id == project_id)
-        schema = (await self.db.execute(schema_stmt)).scalar_one_or_none()
+        schema = (await self.db.execute(select(Schema).where(Schema.project_id == project_id))).scalar_one_or_none()
         if schema:
-            tables_stmt = (select(TableSchema).where(TableSchema.schema_id == schema.tracking_id).order_by(TableSchema.created_at.desc()))
-            tables = list((await self.db.execute(tables_stmt)).scalars().all())
+            tables = list(
+                (
+                    await self.db.execute(
+                        select(TableSchema).where(TableSchema.schema_id == schema.tracking_id).order_by(TableSchema.created_at.desc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
             table_map = {t.tracking_id: t.name for t in tables}
             table_summaries = []
             for table in tables[:6]:
-                fields_stmt = (select(Field).where(Field.table_id == table.tracking_id).order_by(Field.created_at))
-                fields = list((await self.db.execute(fields_stmt)).scalars().all())
+                fields = list(
+                    (await self.db.execute(select(Field).where(Field.table_id == table.tracking_id).order_by(Field.created_at)))
+                    .scalars()
+                    .all()
+                )
                 field_names = [f.name for f in fields[:6]]
                 table_summaries.append(f"{table.name}: " + (", ".join(field_names) if field_names else "no fields"))
-            relations_stmt = (select(Relation).where(Relation.schema_id == schema.tracking_id).order_by(Relation.created_at.desc()))
-            relations = list((await self.db.execute(relations_stmt)).scalars().all())
+            relations = list(
+                (
+                    await self.db.execute(
+                        select(Relation).where(Relation.schema_id == schema.tracking_id).order_by(Relation.created_at.desc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
             relation_summaries = []
             for rel in relations[:6]:
                 rel_type = rel.type.value if hasattr(rel.type, "value") else rel.type
@@ -600,18 +761,23 @@ class AIService:
             parts.append("SCHEMA: " + ("; ".join(table_summaries) if table_summaries else "none"))
             if relation_summaries:
                 parts.append("RELATIONS: " + "; ".join(relation_summaries))
-        interface_stmt = select(Interface).where(Interface.project_id == project_id)
-        interface = (await self.db.execute(interface_stmt)).scalar_one_or_none()
+
+        interface = (await self.db.execute(select(Interface).where(Interface.project_id == project_id))).scalar_one_or_none()
         if interface:
-            pages_stmt = (select(Page).where(Page.interface_id == interface.tracking_id).order_by(Page.created_at))
-            pages = list((await self.db.execute(pages_stmt)).scalars().all())
+            pages = list(
+                (await self.db.execute(select(Page).where(Page.interface_id == interface.tracking_id).order_by(Page.created_at)))
+                .scalars()
+                .all()
+            )
             page_summaries = []
             for page in pages[:6]:
-                comps_stmt = (select(Composant).where(Composant.page_id == page.tracking_id))
-                comps = list((await self.db.execute(comps_stmt)).scalars().all())
+                comps = list((await self.db.execute(select(Composant).where(Composant.page_id == page.tracking_id))).scalars().all())
                 comp_types = [c.type.value for c in comps[:10]]
-                page_summaries.append(f"{page.nom} [{page.chemin}] device={page.type_page} components={','.join(comp_types) if comp_types else 'none'}")
+                page_summaries.append(
+                    f"{page.nom} [{page.chemin}] device={page.type_page} components={','.join(comp_types) if comp_types else 'none'}"
+                )
             parts.append("INTERFACE: " + ("; ".join(page_summaries) if page_summaries else "none"))
+
         if not parts:
             return ""
         return "PROJECT CONTEXT:\n" + "\n".join(parts)
