@@ -1,0 +1,116 @@
+{
+  "id": "e-commerce",
+  "name": "Boutique & Catalogue Produits",
+  "description": "Interface e-commerce moderne avec bannière d’offres, vitrine sous forme de grille et gestion des commandes.",
+  "schema": {
+    "tables": [
+      {
+        "name": "products",
+        "display_name": "Produits",
+        "fields": [
+          {"name": "title", "type": "text", "required": true, "unique": false},
+          {"name": "price", "type": "number", "required": true, "unique": false},
+          {"name": "description", "type": "text", "required": false, "unique": false},
+          {"name": "stock_quantity", "type": "number", "required": true, "unique": false}
+        ]
+      },
+      {
+        "name": "orders",
+        "display_name": "Commandes",
+        "fields": [
+          {"name": "product_id", "type": "number", "required": true, "unique": false},
+          {"name": "order_number", "type": "text", "required": true, "unique": true},
+          {"name": "customer_name", "type": "text", "required": true, "unique": false},
+          {"name": "total_ttc", "type": "number", "required": true, "unique": false},
+          {"name": "delivery_status", "type": "text", "required": true, "unique": false}
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "from_table": "orders",
+        "to_table": "products",
+        "type": "many_to_one",
+        "name": "orders_product",
+        "description": "Chaque commande référence un produit du catalogue",
+        "source_key": "product_id",
+        "target_key": "id"
+      }
+    ]
+  },
+  "interface": {
+    "pages": [
+      {
+        "name": "Boutique en Ligne",
+        "path": "/",
+        "device": "desktop",
+        "is_home": true,
+        "sections": [
+          {
+            "type": "navbar",
+            "ordre": 1,
+            "title": "Navigation E-commerce",
+            "config": {
+              "title": "Boutique Moderne",
+              "links": [
+                {"label": "Boutique", "path": "/"},
+                {"label": "Commandes", "path": "/commandes"}
+              ]
+            }
+          },
+          {
+            "type": "hero",
+            "ordre": 2,
+            "title": "Offres Exceptionnelles",
+            "config": {
+              "title": "Nouvelle Collection Disponible",
+              "subtitle": "Découvrez notre sélection exclusive d’articles artisanaux et innovants.",
+              "cta": {"label": "Explorer le catalogue", "href": "#catalogue"}
+            }
+          },
+          {
+            "type": "card-grid",
+            "ordre": 3,
+            "title": "Nos Produits Vedettes",
+            "connecte_a": "products",
+            "config": {
+              "columns": 3,
+              "card_fields": ["title", "price", "description"],
+              "table": "products"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Gestion des Commandes",
+        "path": "/commandes",
+        "device": "desktop",
+        "is_home": false,
+        "sections": [
+          {
+            "type": "navbar",
+            "ordre": 1,
+            "title": "Navigation E-commerce",
+            "config": {
+              "title": "Boutique Moderne",
+              "links": [
+                {"label": "Boutique", "path": "/"},
+                {"label": "Commandes", "path": "/commandes"}
+              ]
+            }
+          },
+          {
+            "type": "data-table",
+            "ordre": 2,
+            "title": "Historique des Commandes",
+            "connecte_a": "orders",
+            "config": {
+              "columns": ["Numéro Commande", "Client", "Total TTC", "État Livraison"],
+              "table": "orders"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -13,6 +13,7 @@ from app.core.database import Base, engine
 from app.core.identity import decode_access_token, is_public_path
 from app.core.logging import setup_logging
 from app.modules.ai.validation import AIServiceError
+from app.modules.templates.catalog import TEMPLATE_CATALOG as _PRELOADED_TEMPLATES  # noqa: F401
 
 # ─── Logging Setup ──────────────────────────────────────────────────────────────
 setup_logging()
@@ -113,6 +114,7 @@ modules_to_load = [
     ("app.modules.interface_builder.router", "interface_builder_router", "/api", ["Interface Builder"]),
     ("app.modules.generator.router", "generator_router", "/api", ["Générateur"]),
     ("app.modules.workflow_engine.router", "workflow_engine_router", "/api", ["Workflows"]),
+    ("app.modules.templates.router", "templates_router", "/api", ["Templates"]),
 ]
 
 for mod_path, router_name, prefix, tags in modules_to_load:

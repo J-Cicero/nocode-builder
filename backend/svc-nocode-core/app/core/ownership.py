@@ -39,13 +39,14 @@ OWNED_PATH_PARAMS: frozenset[str] = frozenset(
 )
 
 # Paramètres de chemin explicitement non-identifiants de ressource utilisateur
-# (ou protégés par un autre mécanisme : token service / rôle admin catalogue).
+# (ou protégés par un autre mécanisme : token service / rôle admin catalogue / catalogue public).
 NON_OWNERSHIP_PATH_PARAMS: frozenset[str] = frozenset(
     {
         "table_name",
         "model_id",
         "provider_id",
         "user_id",
+        "template_id",  # Identifiant public du catalogue serveur de templates (GET/instantiate)
     }
 )
 

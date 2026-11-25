@@ -1,0 +1,122 @@
+{
+  "id": "crm-sales",
+  "name": "CRM & Pipeline Commercial",
+  "description": "Solution prête à l’emploi pour centraliser vos prospects, suivre vos opportunités et convertir vos clients.",
+  "schema": {
+    "tables": [
+      {
+        "name": "companies",
+        "display_name": "Sociétés",
+        "fields": [
+          {"name": "company_name", "type": "text", "required": true, "unique": false},
+          {"name": "industry", "type": "text", "required": false, "unique": false},
+          {"name": "website", "type": "url", "required": false, "unique": false}
+        ]
+      },
+      {
+        "name": "leads",
+        "display_name": "Prospects",
+        "fields": [
+          {"name": "company_id", "type": "number", "required": true, "unique": false},
+          {"name": "full_name", "type": "text", "required": true, "unique": false},
+          {"name": "email", "type": "email", "required": true, "unique": false},
+          {"name": "phone", "type": "text", "required": false, "unique": false},
+          {"name": "stage", "type": "text", "required": true, "unique": false},
+          {"name": "deal_value", "type": "number", "required": false, "unique": false}
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "from_table": "leads",
+        "to_table": "companies",
+        "type": "many_to_one",
+        "name": "leads_company",
+        "description": "Chaque prospect est rattaché à une société",
+        "source_key": "company_id",
+        "target_key": "id"
+      }
+    ]
+  },
+  "interface": {
+    "pages": [
+      {
+        "name": "Pipeline Ventes",
+        "path": "/",
+        "device": "desktop",
+        "is_home": true,
+        "sections": [
+          {
+            "type": "navbar",
+            "ordre": 1,
+            "title": "Navigation",
+            "config": {
+              "title": "CRM Hub",
+              "links": [
+                {"label": "Contacts", "path": "/"},
+                {"label": "Ajouter un prospect", "path": "/nouveau-lead"}
+              ]
+            }
+          },
+          {
+            "type": "stats-row",
+            "ordre": 2,
+            "title": "Indicateurs de Vente",
+            "config": {
+              "stats": [
+                {"label": "Prospects Qualifiés", "value": "84", "change": "+5"},
+                {"label": "Opportunités en cours", "value": "42,000 €", "change": "+15%"},
+                {"label": "Taux de conversion", "value": "24%", "change": "+3%"}
+              ]
+            }
+          },
+          {
+            "type": "data-table",
+            "ordre": 3,
+            "title": "Répertoire des Contacts",
+            "connecte_a": "leads",
+            "config": {
+              "columns": ["Nom", "Société", "Email", "Statut Commercial"],
+              "table": "leads"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Nouveau Prospect",
+        "path": "/nouveau-lead",
+        "device": "desktop",
+        "is_home": false,
+        "sections": [
+          {
+            "type": "navbar",
+            "ordre": 1,
+            "title": "Navigation",
+            "config": {
+              "title": "CRM Hub",
+              "links": [
+                {"label": "Contacts", "path": "/"},
+                {"label": "Ajouter un prospect", "path": "/nouveau-lead"}
+              ]
+            }
+          },
+          {
+            "type": "form",
+            "ordre": 2,
+            "title": "Fiche d’un Nouveau Prospect",
+            "connecte_a": "leads",
+            "config": {
+              "table": "leads",
+              "fields": [
+                {"name": "name", "label": "Nom complet", "type": "text"},
+                {"name": "company", "label": "Entreprise", "type": "text"},
+                {"name": "email", "label": "Adresse Email", "type": "email"},
+                {"name": "phone", "label": "Téléphone", "type": "tel"}
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

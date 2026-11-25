@@ -1,0 +1,120 @@
+{
+  "id": "saas-dashboard",
+  "name": "SaaS Analytics & Dashboard",
+  "description": "Tableau de bord complet pour application SaaS avec KPIs en temps réel, gestion des utilisateurs et facturation.",
+  "schema": {
+    "tables": [
+      {
+        "name": "organizations",
+        "display_name": "Organisations",
+        "fields": [
+          {"name": "org_name", "type": "text", "required": true, "unique": false},
+          {"name": "billing_email", "type": "email", "required": true, "unique": true},
+          {"name": "plan_tier", "type": "text", "required": true, "unique": false}
+        ]
+      },
+      {
+        "name": "subscriptions",
+        "display_name": "Abonnements",
+        "fields": [
+          {"name": "organization_id", "type": "number", "required": true, "unique": false},
+          {"name": "client_name", "type": "text", "required": true, "unique": false},
+          {"name": "plan_name", "type": "text", "required": true, "unique": false},
+          {"name": "status", "type": "text", "required": true, "unique": false},
+          {"name": "started_at", "type": "date", "required": true, "unique": false},
+          {"name": "mrr_amount", "type": "number", "required": true, "unique": false}
+        ]
+      }
+    ],
+    "relations": [
+      {
+        "from_table": "subscriptions",
+        "to_table": "organizations",
+        "type": "many_to_one",
+        "name": "subscriptions_organization",
+        "description": "Chaque abonnement appartient à une organisation",
+        "source_key": "organization_id",
+        "target_key": "id"
+      }
+    ]
+  },
+  "interface": {
+    "pages": [
+      {
+        "name": "Tableau de bord",
+        "path": "/",
+        "device": "desktop",
+        "is_home": true,
+        "sections": [
+          {
+            "type": "navbar",
+            "ordre": 1,
+            "title": "Navigation Principale",
+            "config": {
+              "title": "SaaS Pulse",
+              "links": [
+                {"label": "Tableau de bord", "path": "/"},
+                {"label": "Paramètres", "path": "/settings"}
+              ]
+            }
+          },
+          {
+            "type": "stats-row",
+            "ordre": 2,
+            "title": "Métriques clés",
+            "config": {
+              "stats": [
+                {"label": "Utilisateurs Actifs", "value": "1,420", "change": "+12%"},
+                {"label": "Revenu Mensuel (MRR)", "value": "18,500 €", "change": "+8%"},
+                {"label": "Taux de Rétention", "value": "96.4%", "change": "+1.2%"}
+              ]
+            }
+          },
+          {
+            "type": "data-table",
+            "ordre": 3,
+            "title": "Derniers Abonnements",
+            "connecte_a": "subscriptions",
+            "config": {
+              "columns": ["Client", "Plan", "Statut", "Date"],
+              "table": "subscriptions"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Paramètres",
+        "path": "/settings",
+        "device": "desktop",
+        "is_home": false,
+        "sections": [
+          {
+            "type": "navbar",
+            "ordre": 1,
+            "title": "Navigation Principale",
+            "config": {
+              "title": "SaaS Pulse",
+              "links": [
+                {"label": "Tableau de bord", "path": "/"},
+                {"label": "Paramètres", "path": "/settings"}
+              ]
+            }
+          },
+          {
+            "type": "form",
+            "ordre": 2,
+            "title": "Informations de l’Organisation",
+            "connecte_a": "organizations",
+            "config": {
+              "table": "organizations",
+              "fields": [
+                {"name": "org_name", "label": "Nom de l’entreprise", "type": "text"},
+                {"name": "billing_email", "label": "Email de facturation", "type": "email"}
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
