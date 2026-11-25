@@ -165,7 +165,7 @@ mut_eng = load_engine(mut_file, "mut_gen_engine")
 fix_eng = load_engine(orig_file, "fix_gen_engine")
 
 for sec_type in ("stats-row", "card-grid", "form"):
-    sec = types.SimpleNamespace(type=sec_type, config={}, styles=None, connecte_a=None, title=sec_type)
+    sec = types.SimpleNamespace(type=sec_type, config={}, styles=None, connecte_a=None, title=sec_type, ordre=0)
     try:
         mut_eng._generate_react_page("TestPage", [], [sec], {})
         raise AssertionError(f"Mutated engine did NOT fail on {sec_type}!")
