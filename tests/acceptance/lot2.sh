@@ -81,6 +81,52 @@ else
   report_step "a" "200" "openapi_ops=$ROUTE_COUNT" "FAIL" "attendu >= 20"
 fi
 
+# a2. Audit des noms de paramètres de chemin OpenAPI vs ownership.py
+PARAM_AUDIT="$(printf '%s' "$OPENAPI_JSON" | python3 -c '
+import json, re, sys
+from pathlib import Path
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "backend" / "svc-nocode-core"))
+import ast
+src = (root / "backend" / "svc-nocode-core" / "app" / "core" / "ownership.py").read_text(encoding="utf-8")
+tree = ast.parse(src)
+owned, allowed = set(), set()
+for node in tree.body:
+    target_name = None
+    val_node = None
+    if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+        target_name = node.targets[0].id
+        val_node = node.value
+    elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+        target_name = node.target.id
+        val_node = node.value
+    if target_name in ("OWNED_PATH_PARAMS", "NON_OWNERSHIP_PATH_PARAMS") and val_node is not None:
+        items = set()
+        if isinstance(val_node, ast.Call) and val_node.args:
+            items = set(ast.literal_eval(val_node.args[0]))
+        elif isinstance(val_node, (ast.Set, ast.List, ast.Tuple)):
+            items = set(ast.literal_eval(val_node))
+        if target_name == "OWNED_PATH_PARAMS":
+            owned = items
+        else:
+            allowed = items
+spec = json.loads(sys.stdin.read())
+params = set()
+for p in spec.get("paths", {}):
+    params.update(re.findall(r"\{([^}]+)\}", p))
+unknown = sorted(params - owned - allowed)
+if not owned or not allowed or unknown:
+    print(f"unknown={unknown} owned={len(owned)} allowed={len(allowed)}")
+    sys.exit(1)
+print(f"params={len(params)} owned={len(owned)} allowed={len(allowed)} unknown=[]")
+' "$ROOT_DIR" 2>&1)" && PARAM_OK=1 || PARAM_OK=0
+
+if [[ "$PARAM_OK" -eq 1 ]]; then
+  report_step "a2" "200" "$PARAM_AUDIT" "PASS"
+else
+  report_step "a2" "n/a" "$PARAM_AUDIT" "FAIL"
+fi
+
 # b. Balayage 401 sans Authorization sur toutes les routes OpenAPI hors liste blanche
 SWEEP_RESULT="$(printf '%s' "$OPENAPI_JSON" | python3 -c '
 import json, re, sys, urllib.error, urllib.request
@@ -167,10 +213,12 @@ fi
 
 # e. B tente lire/modifier/supprimer/télécharger les ressources de A -> 404 partout ; A -> 200
 B_FAILS=0
+B_OPS=0
 check_404_b() {
   local method="$1"
   local url="$2"
   local body="${3:-}"
+  B_OPS=$((B_OPS + 1))
   local res
   res="$(http_call "$method" "$url" "$body" "$TOKEN_B")"
   local code="${res%%$'\n'*}"
@@ -197,9 +245,78 @@ check_404_b GET "$GATEWAY_URL/api/nocode/api/data/projects/$PROJECT_ID/items"
 OUT_A_PROJ="$(http_call GET "$GATEWAY_URL/api/nocode/api/projects/$PROJECT_ID" "" "$TOKEN_A")"
 OUT_A_ZIP="$(http_call GET "$GATEWAY_URL/api/nocode/api/generator/download/$GEN_ID" "" "$TOKEN_A")"
 if [[ "$B_FAILS" -eq 0 && "${OUT_A_PROJ%%$'\n'*}" == "200" && "${OUT_A_ZIP%%$'\n'*}" == "200" ]]; then
-  report_step "e" "404/200" "isolation B=404 (13/13), acces A=200" "PASS"
+  report_step "e" "404/200" "$B_OPS opérations au total sur 7 types de ressources (toutes 404 pour B, accès A=200)" "PASS"
 else
-  report_step "e" "n/a" "b_fails=$B_FAILS a_proj=${OUT_A_PROJ%%$'\n'*} a_zip=${OUT_A_ZIP%%$'\n'*}" "FAIL"
+  report_step "e" "n/a" "b_fails=$B_FAILS b_ops=$B_OPS a_proj=${OUT_A_PROJ%%$'\n'*} a_zip=${OUT_A_ZIP%%$'\n'*}" "FAIL"
+fi
+
+# e2. B tente de créer sous les parents de A (avec ET sans /api) -> 404 partout & comptes de A inchangés
+count_a_resources() {
+  python3 -c '
+import json, sys, urllib.request
+gw, pid, tok = sys.argv[1], sys.argv[2], sys.argv[3]
+def get(p):
+    req = urllib.request.Request(f"{gw}{p}", headers={"Authorization": f"Bearer {tok}"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read().decode())
+schema = get(f"/api/nocode/api/schema/projects/{pid}")
+iface = get(f"/api/nocode/api/interface/{pid}")
+wfs = get(f"/api/nocode/api/workflows/{pid}")
+gens = get(f"/api/nocode/api/generator/{pid}")
+tables = schema.get("tables", [])
+fields = sum(len(t.get("fields", [])) for t in tables)
+rels = len(schema.get("relations", []))
+pages = iface.get("pages", [])
+sections = sum(len(p.get("sections", [])) for p in pages)
+print(json.dumps({
+    "tables": len(tables),
+    "fields": fields,
+    "relations": rels,
+    "pages": len(pages),
+    "sections": sections,
+    "workflows": len(wfs),
+    "generations": gens.get("total", 0),
+}, sort_keys=True))
+' "$GATEWAY_URL" "$PROJECT_ID" "$TOKEN_A"
+}
+
+COUNTS_BEFORE="$(count_a_resources)"
+E2_FAILS=0
+E2_OPS=0
+check_create_b() {
+  local path="$1"
+  local body="$2"
+  for pfx in "/api/nocode/api" "/api/nocode"; do
+    E2_OPS=$((E2_OPS + 1))
+    local res
+    res="$(http_call POST "${GATEWAY_URL}${pfx}${path}" "$body" "$TOKEN_B")"
+    local code="${res%%$'\n'*}"
+    if [[ "$code" != "404" ]]; then
+      echo "  [parent-create FAIL] POST ${pfx}${path} -> HTTP=$code (attendu 404)"
+      E2_FAILS=$((E2_FAILS + 1))
+    fi
+  done
+}
+
+check_create_b "/interface/$PROJECT_ID/pages" "{\"nom\":\"BPage\",\"chemin\":\"/b-page\"}"
+check_create_b "/interface/pages/$PAGE_ID/sections" "{\"type\":\"hero\",\"title\":\"BHero\",\"config\":{}}"
+check_create_b "/interface/pages/$PAGE_ID/composants" "{\"type\":\"texte\",\"config\":{}}"
+check_create_b "/schema/projects/$PROJECT_ID/tables" "{\"name\":\"b_table\",\"display_name\":\"B\"}"
+check_create_b "/schema/tables/$TABLE_ID/fields" "{\"name\":\"b_col\",\"type\":\"text\"}"
+check_create_b "/schema/projects/$PROJECT_ID/relations" "{\"name\":\"b_rel\",\"source_table_id\":\"$TABLE_ID\",\"target_table_id\":\"$TABLE_ID\",\"type\":\"one_to_many\"}"
+check_create_b "/workflows/$PROJECT_ID" "{\"nom\":\"BWF\",\"description\":\"x\"}"
+check_create_b "/data/projects/$PROJECT_ID/items" "{\"content\":{\"title\":\"x\"}}"
+check_create_b "/generator/$PROJECT_ID" "{\"nom\":\"BBuild\",\"config\":{}}"
+check_create_b "/ai/projects/$PROJECT_ID/chat" "{\"content\":\"Bonjour\"}"
+check_create_b "/ai/projects/$PROJECT_ID/generate-schema" "{\"description\":\"Application test injection\"}"
+check_create_b "/ai/projects/$PROJECT_ID/generate-interface" "{\"description\":\"Interface test injection\"}"
+check_create_b "/ai/projects/$PROJECT_ID/generate-app" "{\"description\":\"Application complete test injection\"}"
+
+COUNTS_AFTER="$(count_a_resources)"
+if [[ "$E2_FAILS" -eq 0 && "$COUNTS_BEFORE" == "$COUNTS_AFTER" ]]; then
+  report_step "e2" "404" "$E2_OPS opérations au total (avec et sans /api), comptes A inchangés: $COUNTS_AFTER" "PASS"
+else
+  report_step "e2" "n/a" "e2_fails=$E2_FAILS before=$COUNTS_BEFORE after=$COUNTS_AFTER" "FAIL"
 fi
 
 # f. Ancienne API /api/v1/projects -> 404

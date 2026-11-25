@@ -22,6 +22,33 @@ from app.modules.projects.models import Project
 from app.modules.schema.models import Field, Relation, Schema, TableSchema
 from app.modules.workflow_engine.models import Workflow
 
+# Paramètres de chemin protégés par require_ownership / assert_resource_owner.
+OWNED_PATH_PARAMS: frozenset[str] = frozenset(
+    {
+        "project_id",
+        "tracking_id",
+        "table_id",
+        "field_id",
+        "relation_id",
+        "page_id",
+        "composant_id",
+        "section_id",
+        "donnee_id",
+        "workflow_id",
+    }
+)
+
+# Paramètres de chemin explicitement non-identifiants de ressource utilisateur
+# (ou protégés par un autre mécanisme : token service / rôle admin catalogue).
+NON_OWNERSHIP_PATH_PARAMS: frozenset[str] = frozenset(
+    {
+        "table_name",
+        "model_id",
+        "provider_id",
+        "user_id",
+    }
+)
+
 
 def _not_found() -> HTTPException:
     return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ressource introuvable.")

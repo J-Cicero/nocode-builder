@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from app.core.database import get_db
 from app.core.identity import Identity as User
-from app.core.ownership import require_ownership
+from app.core.ownership import assert_resource_owner, require_ownership
 from app.modules.schema.schema import (
     FieldCreate, FieldUpdate, FieldResponse,
     TableSchemaCreate, TableSchemaUpdate, TableSchemaResponse, TableSchemaDetailResponse,
@@ -184,8 +184,11 @@ async def create_relation(
     project_id: UUID,
     data: RelationCreate,
     current_user: User = Depends(require_ownership("project", "project_id")),
+    db: AsyncSession = Depends(get_db),
     service: SchemaService = Depends(get_schema_service),
 ):
+    await assert_resource_owner(db, "table", data.source_table_id, current_user)
+    await assert_resource_owner(db, "table", data.target_table_id, current_user)
     return await service.create_relation(project_id, data)
 
 
