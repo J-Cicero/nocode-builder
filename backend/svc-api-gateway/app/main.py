@@ -13,7 +13,7 @@ import time
 import uuid
 import httpx
 from fastapi import FastAPI, Request, HTTPException, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from jose import jwt, JWTError
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -24,7 +24,9 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-secret-do-not-use-in-prod")
+SECRET_KEY = os.getenv("SECRET_KEY", "").strip()
+if len(SECRET_KEY) < 32:
+    raise RuntimeError("SECRET_KEY must be configured with at least 32 characters.")
 ALGORITHM = "HS256"
 
 # path-prefix -> upstream base URL. Grows by one line per new svc-*.
@@ -106,7 +108,26 @@ async def proxy(full_path: str, request: Request):
 
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         start = time.monotonic()
-        resp = await client.request(request.method, url, params=request.query_params, headers=headers, content=body)
+        try:
+            resp = await client.request(
+                request.method,
+                url,
+                params=request.query_params,
+                headers=headers,
+                content=body,
+            )
+        except httpx.TimeoutException:
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={"detail": "Upstream service timeout", "request_id": request_id},
+                headers={"x-request-id": request_id},
+            )
+        except httpx.RequestError:
+            return JSONResponse(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                content={"detail": "Upstream service unavailable", "request_id": request_id},
+                headers={"x-request-id": request_id},
+            )
         duration_ms = (time.monotonic() - start) * 1000
 
     out = Response(content=resp.content, status_code=resp.status_code, media_type=resp.headers.get("content-type"))

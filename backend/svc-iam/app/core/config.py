@@ -1,4 +1,5 @@
 import os
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -6,8 +7,15 @@ class Settings(BaseSettings):
     SERVICE_NAME: str = "svc-iam"
     DATABASE_URL: str = "postgresql+asyncpg://iam:iam@localhost:5432/iam"
 
-    SECRET_KEY: str = "change-me-in-vault"          # injected via Vault in real envs, never committed
+    SECRET_KEY: str                                   # required via env/Vault, never defaulted
     ALGORITHM: str = "HS256"
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, value: str) -> str:
+        if not value or len(value.strip()) < 32:
+            raise ValueError("SECRET_KEY must be set and at least 32 characters long.")
+        return value
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15            # short-lived on purpose
     REFRESH_TOKEN_EXPIRE_DAYS: int = 14
 
