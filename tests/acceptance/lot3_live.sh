@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+export DOCKER_BUILDKIT=0
+export COMPOSE_DOCKER_CLI_BUILD=0
+
 # Test live optionnel contre Mistral (SKIP si MISTRAL_API_KEY absente).
 # Informatif uniquement : ne fait pas échouer run_all.sh.
 

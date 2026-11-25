@@ -65,3 +65,21 @@ Les points suivants ont été constatés lors de l'audit et consignés ici **san
 - Le catalogue IA admin (`catalog_router.py`, `catalog_service.py`), `generator_engine.py`, les frontends et les services gelés n'ont pas été modifiés.
 - `GET /api/interface/{project_id}` (`interface_builder/service.py`) crée automatiquement une interface et une page d'accueil `/` lors d'une lecture sur un projet vierge (comportement pré-existant conservé hors périmètre LOT 3).
 - Sous Windows 10 Pro sans Docker, la validation bout en bout de `lot2.sh` + `lot3.sh` a été exécutée contre PostgreSQL 17 réel, les 3 serveurs `uvicorn` réels et `tests/acceptance/fake_ai.py` réel (et `lot3_live.sh` est SKIP sans `MISTRAL_API_KEY`).
+
+---
+
+# Notes techniques — LOT 4 (`v1/lot-4`)
+
+## Points réglés dans le LOT 4
+
+- Factorisation du moteur d'écriture transactionnelle (`schema` + `interface` + `workflows`) dans `backend/svc-nocode-core/app/core/app_builder.py` (`apply_blueprint`) réutilisé par `AIService` et `TemplateService`.
+- Hook d'échec atomique dans `app_builder.py` activé **exclusivement** par la variable d'environnement `TEST_FAIL_TEMPLATE_INSTANTIATION=1` (jamais définie dans `docker-compose.v1.yml`, `.env.example` ou les scripts de démarrage).
+- Catalogue serveur de 3 templates (`backend/svc-nocode-core/app/modules/templates/catalog/*.json`) validés au démarrage par les schémas Pydantic d'IA (`AISchemaOutput`, `AIInterfaceOutput`) et exposés via `GET /api/templates` et `POST /api/templates/{template_id}/instantiate`.
+- Unicité garantie du `slug` dans `ProjectRepository._unique_slug()` en cas de création multiple avec le même nom.
+- Garde-fous ajoutés dans `tests/acceptance/static_checks.sh` : validation du catalogue hors conteneur (avec `SECRET_KEY` éphémère isolé en sous-shell `env -i`) et vérification `DOCKER_BUILDKIT=0` sur tous les scripts appelant `docker compose up/build`.
+
+## Constats hors périmètre LOT 4 (conservés sans correction dans LOT 4)
+
+- `backend/svc-nocode-core/app/modules/generator/generator_engine.py` contient 3 dictionnaires imbriqués dans des `set` (`{{...}}` aux lignes 870–872, 890–892, 912 pour `stats-row`, `card-grid`, `form`), causant `TypeError: unhashable type: 'dict'` lors de la génération des templates (corrigé explicitement au LOT 4b).
+- `backend/svc-nocode-core/app/core/database.py` a `echo=settings.ENVIRONMENT == "development"`.
+- `organization_id`, `company_id`, `product_id` dans les schémas des 3 templates sont de type `number` alors que les identifiants `tracking_id` en base sont des UUID (alignement prévu ultérieurement).
