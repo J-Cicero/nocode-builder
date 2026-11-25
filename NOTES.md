@@ -83,3 +83,20 @@ Les points suivants ont été constatés lors de l'audit et consignés ici **san
 - `backend/svc-nocode-core/app/modules/generator/generator_engine.py` contient 3 dictionnaires imbriqués dans des `set` (`{{...}}` aux lignes 870–872, 890–892, 912 pour `stats-row`, `card-grid`, `form`), causant `TypeError: unhashable type: 'dict'` lors de la génération des templates (corrigé explicitement au LOT 4b).
 - `backend/svc-nocode-core/app/core/database.py` a `echo=settings.ENVIRONMENT == "development"`.
 - `organization_id`, `company_id`, `product_id` dans les schémas des 3 templates sont de type `number` alors que les identifiants `tracking_id` en base sont des UUID (alignement prévu ultérieurement).
+
+---
+
+# Notes techniques — LOT 4b (`v1/lot-4b`)
+
+## Points réglés dans le LOT 4b
+
+- Correction minimale autorisée dans `backend/svc-nocode-core/app/modules/generator/generator_engine.py` : remplacement des 3 valeurs par défaut `{{...}}` (`set` de `dict`) par `{...}` (`dict` dans `list`) pour `stats-row` (lignes 870–872), `card-grid` (lignes 890–892) et `form` (ligne 912). Le double échappement `\\n` (lignes 759, 784) reste intact et hors périmètre.
+- Zéro monkeypatch dans `generator/service.py` ni ailleurs dans `backend/`.
+- Ajout du contrôle statique AST permanent anti-monkeypatch (avec auto-test) dans `tests/acceptance/static_checks.sh`.
+- Ajout de `tests/acceptance/lot4b.sh` (ZIP contenant `backend/main.py`, `frontend/src/App.jsx` et les pages `.jsx` pour les 3 templates + preuve de mutation en copie temporaire).
+
+## Réponses aux points d'audit LOT 4b (rapport sans modification)
+
+1. **`projects/repository.py`** : modifié au LOT 4 uniquement pour ajouter `_unique_slug()` afin d'éviter la violation de contrainte `UNIQUE(slug)` lors de l'instanciation multiple d'un template sous le même nom (étape `f`).
+2. **Affichage SQL (`echo`)** : `backend/svc-nocode-core/app/core/database.py` (ligne 8) définit `echo=settings.ENVIRONMENT == "development"` (`ENVIRONMENT` vaut `"development"` par défaut dans `config.py`), ce qui logue les requêtes SQL et leurs paramètres. `svc-iam` n'active pas `echo=True`. Hors périmètre de correction LOT 4b (noté pour un lot ultérieur).
+3. **Types `organization_id`, `company_id`, `product_id` (`number` vs `UUID`)** : incohérence conservée pour décision produit ultérieure (les tables générées par `generator_engine.py` utilisent un `id` `Integer` auto-incrémenté côté backend exporté, tandis que `nocode-core` utilise des `tracking_id` UUID).

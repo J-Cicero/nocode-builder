@@ -867,9 +867,9 @@ export default App;
 
             elif sec_type in ("stats-row", "STATS_ROW"):
                 stats = config.get("stats", [
-                    {{"label": "Utilisateurs", "value": "10K+"}},
-                    {{"label": "Projets", "value": "500+"}},
-                    {{"label": "Satisfaction", "value": "98%"}},
+                    {"label": "Utilisateurs", "value": "10K+"},
+                    {"label": "Projets", "value": "500+"},
+                    {"label": "Satisfaction", "value": "98%"},
                 ])
                 stats_html = "".join([
                     f'<div style={{{{textAlign: "center", flex: 1}}}}>'
@@ -887,9 +887,9 @@ export default App;
 
             elif sec_type in ("card-grid", "CARD_GRID"):
                 cards = config.get("cards", [
-                    {{"title": "Feature 1", "description": "Description de la feature 1"}},
-                    {{"title": "Feature 2", "description": "Description de la feature 2"}},
-                    {{"title": "Feature 3", "description": "Description de la feature 3"}},
+                    {"title": "Feature 1", "description": "Description de la feature 1"},
+                    {"title": "Feature 2", "description": "Description de la feature 2"},
+                    {"title": "Feature 3", "description": "Description de la feature 3"},
                 ])
                 cards_html = "".join([
                     f'<div style={{{{background: "rgba(255,255,255,0.08)", borderRadius: "1rem", padding: "1.5rem", border: "1px solid rgba(255,255,255,0.15)"}}}}>'
@@ -909,7 +909,7 @@ export default App;
       </section>''')
 
             elif sec_type in ("form", "FORM"):
-                fields = config.get("fields", [{{"label": "Email", "type": "email", "placeholder": "votre@email.com"}}])
+                fields = config.get("fields", [{"label": "Email", "type": "email", "placeholder": "votre@email.com"}])
                 btn_label = config.get("submitLabel", "Envoyer")
                 fields_html = "".join([
                     f'<div style={{{{marginBottom: "1rem"}}}}>'

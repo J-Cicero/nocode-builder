@@ -138,4 +138,84 @@ except RuntimeError as exc:
 print(f"[static:templates_catalog] 3/3 templates valides ({sorted(catalog.keys())}) + rejet template invalide OK | PASS")
 PY
 
+# 6. Contrôle permanent anti-monkeypatch dans backend/ + auto-test
+check_no_monkeypatch() {
+  local target_dir="$1"
+  "$VENV_PY" - "$target_dir" <<'PY'
+import ast, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+violations = []
+
+for py_file in sorted(root.rglob("*.py")):
+    src = py_file.read_text(encoding="utf-8", errors="replace")
+    tree = ast.parse(src, filename=str(py_file))
+    imported = set()
+    classes = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imported.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                imported.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ClassDef):
+            classes.add(node.name)
+
+    def root_name(expr):
+        while isinstance(expr, ast.Attribute):
+            expr = expr.value
+        return expr.id if isinstance(expr, ast.Name) else None
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for tgt in targets:
+                if isinstance(tgt, ast.Attribute):
+                    rn = root_name(tgt.value)
+                    if rn and rn in (imported | classes):
+                        violations.append(f"{py_file}:{node.lineno} assignment on imported/class '{rn}.{tgt.attr}'")
+        elif isinstance(node, ast.Call):
+            fn_name = None
+            if isinstance(node.func, ast.Name):
+                fn_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                fn_name = node.func.attr
+            if fn_name == "patch":
+                rn = root_name(node.func)
+                if "unittest" in imported or "mock" in imported or (rn and rn in ("mock", "patch")):
+                    violations.append(f"{py_file}:{node.lineno} unittest.mock.patch call")
+            if isinstance(node.func, ast.Name) and node.func.id == "setattr" and node.args:
+                rn = root_name(node.args[0])
+                second_is_const = len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
+                if (rn and rn in (imported | classes)) or second_is_const:
+                    violations.append(f"{py_file}:{node.lineno} suspicious setattr monkeypatch")
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            txt = ast.get_source_segment(src, node) or ""
+            if "unittest.mock" in txt or "monkeypatch" in txt:
+                violations.append(f"{py_file}:{node.lineno} forbidden mock/monkeypatch import")
+
+if violations:
+    for v in violations:
+        print("ANTI-MONKEYPATCH VIOLATION:", v)
+    sys.exit(1)
+PY
+}
+
+for svc_dir in "$ROOT_DIR/backend/svc-iam" "$ROOT_DIR/backend/svc-nocode-core" "$ROOT_DIR/backend/svc-api-gateway"; do
+  check_no_monkeypatch "$svc_dir"
+done
+echo "[static:anti_monkeypatch] 0 monkeypatch/patch dans backend/ | PASS"
+
+# Auto-test anti-monkeypatch
+mkdir -p "$TMP_DIR/bad_mp"
+cat > "$TMP_DIR/bad_mp/bad_patch.py" <<'EOF'
+from app.modules.generator.generator_engine import GeneratorEngine
+GeneratorEngine._generate_react_page = lambda *args, **kwargs: ""
+EOF
+if check_no_monkeypatch "$TMP_DIR/bad_mp" >/dev/null 2>&1; then
+  echo "[static:anti_monkeypatch_selftest] FAIL: monkeypatch témoin non détecté"
+  exit 1
+fi
+echo "[static:anti_monkeypatch_selftest] Monkeypatch témoin détecté | PASS"
+
 echo "=== RESULTAT STATIC_CHECKS: 100% PASS ==="
