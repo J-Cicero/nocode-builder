@@ -3,12 +3,14 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import Base, engine
+from app.core.identity import decode_access_token, is_public_path
 from app.core.logging import setup_logging
 
 # ─── Logging Setup ──────────────────────────────────────────────────────────────
@@ -68,6 +70,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def enforce_jwt_middleware(request: Request, call_next):
+    """Enforce JWT authentication globally except on the single public whitelist."""
+    if request.method != "OPTIONS" and not is_public_path(request.url.path):
+        auth_header = request.headers.get("authorization", "")
+        service_header = request.headers.get("x-service-auth", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            try:
+                request.state.identity = decode_access_token(token)
+            except HTTPException as exc:
+                return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        elif service_header and request.url.path.startswith("/api/projects/internal/"):
+            # Verified by require_service_token dependency on internal DSAR routes.
+            pass
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "Not authenticated"},
+            )
+    return await call_next(request)
 
 # ─── Business Modules (Projects, Schema, Data, AI, Workflows, Generator, Interface) ──
 modules_to_load = [

@@ -18,11 +18,8 @@ class ProjectService:
         self.repo = repo
 
     def _check_owner(self, project: Project, user: Identity) -> None:
-        role_val = getattr(user.role, "value", user.role)
-        is_admin = str(role_val or "").lower() in {"admin", "super_admin"}
-        is_owner = str(project.owner_id) == str(user.tracking_id)
-        if not is_admin and not is_owner:
-            raise HTTPException(status_code=403, detail="Accès refusé.")
+        if str(project.owner_id) != str(user.tracking_id):
+            raise HTTPException(status_code=404, detail="Projet introuvable.")
 
     async def get_my_projects(self, user: Identity) -> ProjectListResponse:
         projects = await self.repo.get_all_by_owner(user.tracking_id)
@@ -43,8 +40,7 @@ class ProjectService:
         project = await self.repo.get_by_tracking_id(tracking_id)
         if not project:
             raise HTTPException(status_code=404, detail="Projet introuvable.")
-        if not project.is_public:
-            self._check_owner(project, user)
+        self._check_owner(project, user)
         return project
 
     async def update_project(self, tracking_id: UUID, data: ProjectUpdate, user: Identity) -> Project:

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from app.core.database import get_db
 from app.core.identity import get_current_identity as get_current_user, Identity as User
+from app.core.ownership import require_ownership
 from app.core.service_auth import require_service_token
 from app.modules.projects.schema import (
     ProjectCreate, ProjectUpdate, ProjectStatusUpdate,
@@ -57,7 +58,7 @@ async def create_project(
 )
 async def get_project(
     tracking_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "tracking_id")),
     service: ProjectService = Depends(get_project_service),
 ):
     return await service.get_project(tracking_id, current_user)
@@ -72,7 +73,7 @@ async def get_project(
 async def update_project(
     tracking_id: UUID,
     data: ProjectUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "tracking_id")),
     service: ProjectService = Depends(get_project_service),
 ):
     return await service.update_project(tracking_id, data, current_user)
@@ -87,7 +88,7 @@ async def update_project(
 async def update_status(
     tracking_id: UUID,
     data: ProjectStatusUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "tracking_id")),
     service: ProjectService = Depends(get_project_service),
 ):
     return await service.update_status(tracking_id, data, current_user)
@@ -102,7 +103,7 @@ async def update_status(
 )
 async def duplicate_project(
     tracking_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "tracking_id")),
     service: ProjectService = Depends(get_project_service),
 ):
     return await service.duplicate_project(tracking_id, current_user)
@@ -116,7 +117,7 @@ async def duplicate_project(
 )
 async def delete_project(
     tracking_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "tracking_id")),
     service: ProjectService = Depends(get_project_service),
 ):
     await service.delete_project(tracking_id, current_user)

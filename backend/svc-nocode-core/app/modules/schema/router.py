@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
 from app.core.database import get_db
-from app.core.identity import get_current_identity as get_current_user, Identity as User
+from app.core.identity import Identity as User
+from app.core.ownership import require_ownership
 from app.modules.schema.schema import (
     FieldCreate, FieldUpdate, FieldResponse,
     TableSchemaCreate, TableSchemaUpdate, TableSchemaResponse, TableSchemaDetailResponse,
@@ -34,7 +35,7 @@ def get_schema_service(db: AsyncSession = Depends(get_db)) -> SchemaService:
 )
 async def get_schema(
     project_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.get_schema_detail(project_id)
@@ -48,7 +49,7 @@ async def get_schema(
 )
 async def list_tables(
     project_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.get_all_tables(project_id)
@@ -64,7 +65,7 @@ async def list_tables(
 async def create_table(
     project_id: UUID,
     data: TableSchemaCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.create_table(project_id, data)
@@ -79,7 +80,7 @@ async def create_table(
 async def update_table(
     table_id: UUID,
     data: TableSchemaUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("table", "table_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.update_table(table_id, data)
@@ -93,7 +94,7 @@ async def update_table(
 )
 async def delete_table(
     table_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("table", "table_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     await service.delete_table(table_id)
@@ -107,7 +108,7 @@ async def delete_table(
 )
 async def list_fields(
     table_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("table", "table_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.get_all_fields(table_id)
@@ -123,7 +124,7 @@ async def list_fields(
 async def create_field(
     table_id: UUID,
     data: FieldCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("table", "table_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.create_field(table_id, data)
@@ -138,7 +139,7 @@ async def create_field(
 async def update_field(
     field_id: UUID,
     data: FieldUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("field", "field_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.update_field(field_id, data)
@@ -152,7 +153,7 @@ async def update_field(
 )
 async def delete_field(
     field_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("field", "field_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     await service.delete_field(field_id)
@@ -166,7 +167,7 @@ async def delete_field(
 )
 async def list_relations(
     project_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.get_all_relations(project_id)
@@ -182,7 +183,7 @@ async def list_relations(
 async def create_relation(
     project_id: UUID,
     data: RelationCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.create_relation(project_id, data)
@@ -197,7 +198,7 @@ async def create_relation(
 async def update_relation(
     relation_id: UUID,
     data: RelationUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("relation", "relation_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     return await service.update_relation(relation_id, data)
@@ -211,7 +212,7 @@ async def update_relation(
 )
 async def delete_relation(
     relation_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("relation", "relation_id")),
     service: SchemaService = Depends(get_schema_service),
 ):
     await service.delete_relation(relation_id)

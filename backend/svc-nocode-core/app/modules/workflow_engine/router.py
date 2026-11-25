@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
 from app.core.database import get_db
-from app.core.identity import get_current_identity as get_current_user, Identity as User
+from app.core.identity import Identity as User
+from app.core.ownership import require_ownership
 from app.modules.workflow_engine.service import WorkflowService
 from app.modules.workflow_engine.schema import (
     WorkflowCreate,
@@ -36,7 +37,7 @@ def get_workflow_service(db: AsyncSession = Depends(get_db)) -> WorkflowService:
 async def create_workflow(
     project_id: UUID,
     data: WorkflowCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.create_workflow(project_id, data)
@@ -49,7 +50,7 @@ async def create_workflow(
 )
 async def get_project_workflows(
     project_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.get_project_workflows(project_id)
@@ -62,7 +63,7 @@ async def get_project_workflows(
 )
 async def get_workflow(
     tracking_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("workflow", "tracking_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.get_workflow(tracking_id)
@@ -76,7 +77,7 @@ async def get_workflow(
 async def update_workflow(
     tracking_id: UUID,
     data: WorkflowUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("workflow", "tracking_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.update_workflow(tracking_id, data)
@@ -89,7 +90,7 @@ async def update_workflow(
 )
 async def delete_workflow(
     tracking_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("workflow", "tracking_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     await service.delete_workflow(tracking_id)
@@ -102,7 +103,7 @@ async def delete_workflow(
 )
 async def get_workflow_executions(
     workflow_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("workflow", "workflow_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.get_executions(workflow_id)
@@ -117,7 +118,7 @@ async def get_workflow_executions(
 )
 async def get_workflow_graph(
     workflow_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("workflow", "workflow_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.get_graph(workflow_id)
@@ -131,7 +132,7 @@ async def get_workflow_graph(
 async def update_workflow_graph(
     workflow_id: UUID,
     data: WorkflowGraphUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("workflow", "workflow_id")),
     service: WorkflowService = Depends(get_workflow_service),
 ):
     return await service.update_graph(workflow_id, data)

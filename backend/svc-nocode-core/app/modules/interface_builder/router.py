@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
 from app.core.database import get_db
-from app.core.identity import get_current_identity as get_current_user, Identity as User
+from app.core.identity import Identity as User
+from app.core.ownership import require_ownership
 from app.modules.interface_builder.service import InterfaceService
 from app.modules.interface_builder.schema import (
     PageCreate,
@@ -40,7 +41,7 @@ def get_interface_service(db: AsyncSession = Depends(get_db)) -> InterfaceServic
 )
 async def get_interface(
     project_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.get_or_create_interface(project_id)
@@ -57,7 +58,7 @@ async def get_interface(
 async def create_page(
     project_id: UUID,
     data: PageCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.create_page(project_id, data)
@@ -70,7 +71,7 @@ async def create_page(
 )
 async def get_page(
     page_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("page", "page_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.get_page(page_id)
@@ -84,7 +85,7 @@ async def get_page(
 async def update_page(
     page_id: UUID,
     data: PageUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("page", "page_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.update_page(page_id, data)
@@ -97,7 +98,7 @@ async def update_page(
 )
 async def delete_page(
     page_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("page", "page_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     await service.delete_page(page_id)
@@ -114,7 +115,7 @@ async def delete_page(
 async def create_composant(
     page_id: UUID,
     data: ComposantCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("page", "page_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.create_composant(page_id, data)
@@ -127,7 +128,7 @@ async def create_composant(
 )
 async def get_composant(
     composant_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("composant", "composant_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.get_composant(composant_id)
@@ -141,7 +142,7 @@ async def get_composant(
 async def update_composant(
     composant_id: UUID,
     data: ComposantUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("composant", "composant_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.update_composant(composant_id, data)
@@ -154,7 +155,7 @@ async def update_composant(
 )
 async def delete_composant(
     composant_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("composant", "composant_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     await service.delete_composant(composant_id)
@@ -167,7 +168,7 @@ async def delete_composant(
 async def reorder_composants(
     page_id: UUID,
     ordre: list[dict],
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("page", "page_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.reorder_composants(page_id, ordre)
@@ -181,7 +182,7 @@ async def reorder_composants(
 )
 async def get_page_sections(
     page_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("page", "page_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.get_page_sections(page_id)
@@ -196,7 +197,7 @@ async def get_page_sections(
 async def create_section(
     page_id: UUID,
     data: SectionCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("page", "page_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.create_section(page_id, data)
@@ -210,7 +211,7 @@ async def create_section(
 async def update_section(
     section_id: UUID,
     data: SectionUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("section", "section_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     return await service.update_section(section_id, data)
@@ -223,7 +224,7 @@ async def update_section(
 )
 async def delete_section(
     section_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("section", "section_id")),
     service: InterfaceService = Depends(get_interface_service),
 ):
     await service.delete_section(section_id)

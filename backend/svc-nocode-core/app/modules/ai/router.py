@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import UUID
 from app.core.database import get_db
-from app.core.identity import get_current_identity as get_current_user, Identity as User
+from app.core.identity import Identity as User
+from app.core.ownership import require_ownership
 from app.modules.ai.service import AIService
 from app.modules.ai.schemas import (
     MessageCreate,
@@ -38,7 +39,7 @@ def get_ai_service(db: AsyncSession = Depends(get_db)) -> AIService:
 async def chat(
     project_id: UUID,
     data: MessageCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ) -> MessageResponse:
     return await service.chat(project_id, data, current_user)
@@ -55,7 +56,7 @@ async def chat(
 async def generate_schema(
     project_id: UUID,
     data: SchemaGenerationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ) -> SchemaGenerationResponse:
     return await service.generate_schema(project_id, data, current_user)
@@ -72,7 +73,7 @@ async def generate_schema(
 async def generate_interface(
     project_id: UUID,
     data: InterfaceGenerationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ) -> InterfaceGenerationResponse:
     return await service.generate_interface(project_id, data, current_user)
@@ -87,7 +88,7 @@ async def generate_interface(
 async def generate_app(
     project_id: UUID,
     data: AppGenerationRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ):
     return await service.generate_app(project_id, data, current_user)
@@ -102,7 +103,7 @@ async def generate_app(
 )
 async def get_history(
     project_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ) -> ConversationResponse:
     return await service.get_history(project_id)
@@ -117,7 +118,7 @@ async def get_history(
 )
 async def clear_history(
     project_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: AIService = Depends(get_ai_service),
 ) -> dict:
     return await service.clear_history(project_id)

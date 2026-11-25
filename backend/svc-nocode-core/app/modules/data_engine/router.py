@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from app.core.database import get_db
 from app.core.identity import get_current_identity as get_current_user, Identity as User
+from app.core.ownership import require_ownership
 from app.modules.data_engine.schema import DonneeCreate, DonneeUpdate, DonneeResponse, DonneeListResponse
 from app.modules.data_engine.service import DataEngineService
 
@@ -27,7 +28,7 @@ async def create_data(
     project_id: UUID,
     table_name: str,
     data: DonneeCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: DataEngineService = Depends(get_data_service),
 ):
     return await service.create(project_id, table_name, data, current_user.tracking_id)
@@ -42,7 +43,7 @@ async def create_data(
 async def list_data(
     project_id: UUID,
     table_name: str,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: DataEngineService = Depends(get_data_service),
 ):
     return await service.list(project_id, table_name)
@@ -51,6 +52,7 @@ async def list_data(
 @router.get(
     "/projects/{project_id}/{table_name}/{donnee_id}",
     response_model=DonneeResponse,
+    dependencies=[Depends(require_ownership("donnee", "donnee_id"))],
     summary="Récupérer une entrée spécifique",
     description="Récupère les détails complets d'une seule entrée de données."
 )
@@ -58,7 +60,7 @@ async def get_data(
     project_id: UUID,
     table_name: str,
     donnee_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: DataEngineService = Depends(get_data_service),
 ):
     return await service.get(donnee_id)
@@ -67,6 +69,7 @@ async def get_data(
 @router.put(
     "/projects/{project_id}/{table_name}/{donnee_id}",
     response_model=DonneeResponse,
+    dependencies=[Depends(require_ownership("donnee", "donnee_id"))],
     summary="Modifier une entrée de données",
     description="Met à jour le contenu d'une entrée et sauvegarde automatiquement l'historique des modifications."
 )
@@ -75,7 +78,7 @@ async def update_data(
     table_name: str,
     donnee_id: UUID,
     data: DonneeUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: DataEngineService = Depends(get_data_service),
 ):
     return await service.update(donnee_id, data, current_user.tracking_id)
@@ -84,6 +87,7 @@ async def update_data(
 @router.delete(
     "/projects/{project_id}/{table_name}/{donnee_id}",
     status_code=204,
+    dependencies=[Depends(require_ownership("donnee", "donnee_id"))],
     summary="Supprimer une entrée de données",
     description="Supprime complètement une entrée ainsi que son historique. Cette action est irréversible."
 )
@@ -91,7 +95,7 @@ async def delete_data(
     project_id: UUID,
     table_name: str,
     donnee_id: UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_ownership("project", "project_id")),
     service: DataEngineService = Depends(get_data_service),
 ):
     await service.delete(donnee_id)
