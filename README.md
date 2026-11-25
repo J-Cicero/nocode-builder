@@ -2,43 +2,36 @@
 
 ---
 
-## 🚀 Guide de Démarrage Rapide (Commandes Locales)
+## 🚀 Guide de Démarrage Rapide (Stack V1 Docker Compose)
 
-### 1. Démarrer les Bases de Données (PostgreSQL)
-Les bases de données tournent sous Docker avec leurs ports respectifs :
+Le socle V1 actif regroupe uniquement le noyau (`svc-iam-db`, `svc-nocode-core-db`, `svc-iam`, `svc-nocode-core`, `svc-api-gateway`). Les services et portails secondaires sont gelés (voir [FROZEN.md](FROZEN.md)).
+
+### 1. Configurer les secrets & démarrer la stack V1
 ```bash
-# Lancement des conteneurs DB IAM (5433) et Nocode Core (5434)
-docker compose -f infra/docker-compose.yml up -d svc-iam-db svc-nocode-core-db
+cp infra/.env.example infra/.env
+# Éditer infra/.env et renseigner PLATFORM_SHARED_SECRET, IAM_DB_PASSWORD et NOCODE_DB_PASSWORD
+
+docker compose -f infra/docker-compose.v1.yml --env-file infra/.env up -d --build --wait
+```
+*(Note locale : [infra/docker-compose.v1.yml](infra/docker-compose.v1.yml) utilise `build.network: host` comme contournement pour les environnements dont le bridge Docker n'a pas de DNS.)*
+
+### 2. Créer un compte utilisateur (aucun compte par défaut)
+Les tables sont créées automatiquement au démarrage sans données de démonstration :
+```bash
+curl -sS -X POST http://localhost:8000/api/iam/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"votre@email.com","name":"Prenom","surname":"Nom","password":"Password123!"}'
 ```
 
-### 2. Démarrer les Microservices Backend
-Ouvrir des terminaux distincts (ou exécuter en tâche de fond) :
-
-```bash
-# Service IAM (Authentification & Sessions) — Port 8001
-cd backend/svc-iam
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8001
-
-# Service NoCode Core (Moteur Builder, IA EnoC, Projets) — Port 8002
-cd backend/svc-nocode-core
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8002
-
-# Service API Gateway (Point d'Entrée Unique & Reverse Proxy) — Port 8000
-cd backend/svc-api-gateway
-python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-### 3. Démarrer le Frontend (Portal User)
+### 3. Démarrer le Frontend (Portal User — optionnel hors compose)
 ```bash
 cd frontend/portal-user
 npm start
 # L'application s'ouvre sur http://localhost:3000
 ```
 
-### 4. Compte de Test & Authentification
-- **URL de connexion** : [http://localhost:3000/auth/login](http://localhost:3000/auth/login)
-- **Email** : `test@enoc.com`
-- **Mot de passe** : `Password123!`
+### 4. Réinitialisation complète
+reset complet : `docker compose -f infra/docker-compose.v1.yml down -v`
 
 ---
 
