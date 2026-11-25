@@ -7,10 +7,6 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api.v1.health import router as health_router
-from app.api.v1.endpoints.workspaces import router as workspaces_router
-from app.api.v1.endpoints.projects import router as projects_router
-from app.api.v1.endpoints.blueprints import router as blueprints_router
 from app.core.config import settings
 from app.core.database import Base, engine
 from app.core.logging import setup_logging
@@ -20,7 +16,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
-async def _init_db_with_retry(active_tables: list, timeout_seconds: float = 35.0, interval_seconds: float = 1.0) -> None:
+async def _init_db_with_retry(timeout_seconds: float = 35.0, interval_seconds: float = 1.0) -> None:
     """Wait for PostgreSQL availability and create tables, retrying for at least 30s."""
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     attempt = 0
@@ -28,7 +24,7 @@ async def _init_db_with_retry(active_tables: list, timeout_seconds: float = 35.0
         attempt += 1
         try:
             async with engine.begin() as conn:
-                await conn.run_sync(lambda c: Base.metadata.create_all(c, tables=active_tables))
+                await conn.run_sync(Base.metadata.create_all)
             return
         except Exception as exc:
             if asyncio.get_running_loop().time() >= deadline:
@@ -42,7 +38,6 @@ async def _init_db_with_retry(active_tables: list, timeout_seconds: float = 35.0
 async def lifespan(app: FastAPI):
     logger.info("🚀 NoCode Builder API starting up...")
     if os.getenv("AUTO_CREATE_TABLES", "true").lower() == "true":
-        import app.models  # noqa: F401
         from app.modules.ai import models as _ai_models  # noqa: F401
         from app.modules.data_engine import models as _data_models  # noqa: F401
         from app.modules.generator import models as _gen_models  # noqa: F401
@@ -51,9 +46,7 @@ async def lifespan(app: FastAPI):
         from app.modules.schema import models as _schema_models  # noqa: F401
         from app.modules.workflow_engine import models as _wf_models  # noqa: F401
 
-        # Crée toutes les tables actives (hors table legacy `users`, gérée par svc-iam)
-        active_tables = [t for name, t in Base.metadata.tables.items() if name != "users"]
-        await _init_db_with_retry(active_tables)
+        await _init_db_with_retry()
     yield
     logger.info("🛑 NoCode Builder API shutting down...")
     await engine.dispose()
@@ -76,16 +69,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Routers ────────────────────────────────────────────────────────────────────
-app.include_router(health_router, prefix="/api/v1")
-app.include_router(workspaces_router, prefix="/api/v1/workspaces", tags=["Workspaces"])
-app.include_router(projects_router, prefix="/api/v1/projects", tags=["Projects"])
-app.include_router(blueprints_router, prefix="/api/v1/blueprints", tags=["Blueprints"])
-
-# ─── Business Modules (Auth, Schema, Data, AI, Workflows, Generator, Interface) ──
+# ─── Business Modules (Projects, Schema, Data, AI, Workflows, Generator, Interface) ──
 modules_to_load = [
-    ("app.modules.auth.router", "auth_router", "/api", ["Auth"]),
-    ("app.modules.projects.router", "projects_router_module", "/api", [" Projets"]),
+    ("app.modules.projects.router", "projects_router_module", "/api", ["Projets"]),
     ("app.modules.ai.router", "ai_router", "/api", ["AI Assistant"]),
     ("app.modules.ai.catalog_router", "ai_catalog_router", "/api", ["AI Catalogue"]),
     ("app.modules.schema.router", "schema_router", "/api", ["Constructeur de Schéma"]),
@@ -124,5 +110,5 @@ async def root():
         "project": settings.PROJECT_NAME,
         "version": settings.API_VERSION,
         "docs": "/docs",
-        "health": "/api/v1/health",
+        "health": "/health",
     }

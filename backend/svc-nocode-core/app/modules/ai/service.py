@@ -31,7 +31,7 @@ from app.modules.ai.prompts import (
 from app.modules.projects.repository import ProjectRepository
 from app.modules.schema.models import Schema, TableSchema, Field, Relation
 from app.modules.schema.models import FieldType, RelationType
-from app.modules.auth.models import User
+from app.core.identity import Identity as User
 from app.modules.interface_builder.models import Interface, Page, Composant, TypePage, TypeComposant, Section
 from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository, SectionRepository
 from app.modules.workflow_engine.repository import WorkflowRepository
