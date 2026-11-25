@@ -86,7 +86,7 @@ SWEEP_RESULT="$(printf '%s' "$OPENAPI_JSON" | python3 -c '
 import json, re, sys, urllib.error, urllib.request
 spec = json.loads(sys.stdin.read())
 base = sys.argv[1].rstrip("/")
-whitelist = {"/", "/health", "/docs", "/openapi.json"}
+whitelist = {"/health", "/docs", "/openapi.json"}
 bad = []
 checked = 0
 dummy_uuid = "00000000-0000-0000-0000-000000000001"
