@@ -1,0 +1,236 @@
+:root {
+  --color-primary: #c4622d;
+  --color-secondary: #1e293b;
+  --color-bg: #faf7f2;
+  --color-surface: #ffffff;
+  --color-text: #1f1612;
+  --color-muted: #6b5b52;
+  --color-border: #e6dacb;
+  --radius-md: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+}
+
+.rt-app {
+  min-height: 100vh;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+.rt-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-bottom: 48px;
+}
+
+.rt-container {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.rt-navbar {
+  background-color: var(--color-secondary);
+  color: #ffffff;
+  padding: 16px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.rt-navbar-brand {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.rt-navbar-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.rt-navbar-link {
+  color: #f8fafc;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.rt-navbar-link:hover {
+  text-decoration: underline;
+}
+
+.rt-hero {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 48px 32px;
+  text-align: center;
+}
+
+.rt-hero h1 {
+  margin: 0 0 12px 0;
+  font-size: 2rem;
+}
+
+.rt-hero p {
+  margin: 0 auto 24px auto;
+  max-width: 640px;
+  color: var(--color-muted);
+}
+
+.rt-btn {
+  display: inline-block;
+  background-color: var(--color-primary);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rt-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.rt-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 24px;
+}
+
+.rt-section-title {
+  margin: 0 0 16px 0;
+  font-size: 1.35rem;
+}
+
+.rt-muted {
+  color: var(--color-muted);
+  font-size: 0.92rem;
+}
+
+.rt-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.rt-stat-card {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+}
+
+.rt-stat-label {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.rt-stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  margin-top: 8px;
+}
+
+.rt-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.rt-table-wrap {
+  overflow-x: auto;
+}
+
+.rt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.rt-table th,
+.rt-table td {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rt-table th {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.rt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 560px;
+}
+
+.rt-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rt-field label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.rt-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.rt-notice {
+  background-color: #f8f1e7;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.rt-unsupported {
+  background-color: #fff7ed;
+  border: 1px dashed #c2410c;
+  border-radius: var(--radius-md);
+  padding: 20px;
+  color: #7c2d12;
+}
+
+.rt-not-found {
+  max-width: 560px;
+  margin: 64px auto;
+  text-align: center;
+}

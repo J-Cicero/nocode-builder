@@ -1,0 +1,115 @@
+{
+  "name": "Exemple Application Web",
+  "theme": {
+    "primary": "#c4622d",
+    "secondary": "#1e293b",
+    "background": "#faf7f2",
+    "surface": "#ffffff",
+    "text": "#1f1612",
+    "text_muted": "#6b5b52",
+    "border": "#e6dacb"
+  },
+  "pages": [
+    {
+      "name": "Accueil",
+      "path": "/",
+      "is_home": true,
+      "sections": [
+        {
+          "type": "navbar",
+          "title": "Exemple App",
+          "config": {
+            "title": "Exemple App",
+            "links": [
+              { "label": "Accueil", "path": "/" },
+              { "label": "Détails", "path": "/details" }
+            ]
+          },
+          "connected_to": null
+        },
+        {
+          "type": "hero",
+          "title": "Bienvenue sur Exemple App",
+          "config": {
+            "title": "Bienvenue sur Exemple App",
+            "subtitle": "Aperçu statique du runtime web.",
+            "cta": { "label": "Voir les détails", "href": "/details" }
+          },
+          "connected_to": null
+        },
+        {
+          "type": "stats-row",
+          "title": "Indicateurs",
+          "config": {
+            "stats": [
+              { "label": "Clients", "value": "42" },
+              { "label": "Commandes", "table": "orders" }
+            ]
+          },
+          "connected_to": null
+        },
+        {
+          "type": "card-grid",
+          "title": "Catalogue",
+          "config": {
+            "title": "Catalogue",
+            "table": "products",
+            "card_fields": ["name", "price"]
+          },
+          "connected_to": "products"
+        }
+      ]
+    },
+    {
+      "name": "Détails",
+      "path": "/details",
+      "is_home": false,
+      "sections": [
+        {
+          "type": "navbar",
+          "title": "Exemple App",
+          "config": {
+            "title": "Exemple App",
+            "links": [
+              { "label": "Accueil", "path": "/" },
+              { "label": "Détails", "path": "/details" }
+            ]
+          },
+          "connected_to": null
+        },
+        {
+          "type": "text-section",
+          "title": "Présentation",
+          "config": {
+            "title": "Présentation",
+            "content": "Page de démonstration des sections statiques."
+          },
+          "connected_to": null
+        },
+        {
+          "type": "data-table",
+          "title": "Liste des commandes",
+          "config": {
+            "title": "Liste des commandes",
+            "table": "orders",
+            "columns": ["reference", "status", "total"]
+          },
+          "connected_to": "orders"
+        },
+        {
+          "type": "form",
+          "title": "Nouvelle commande",
+          "config": {
+            "title": "Nouvelle commande",
+            "table": "orders",
+            "fields": [
+              { "name": "reference", "label": "Référence", "type": "text", "required": true },
+              { "name": "total", "label": "Montant", "type": "number", "required": true }
+            ]
+          },
+          "connected_to": "orders"
+        }
+      ]
+    }
+  ]
+}
