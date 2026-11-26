@@ -33,6 +33,7 @@ class GenerationResponse(BaseModel):
     url_zip: Optional[str]
     erreur: Optional[str]
     config: Optional[dict[str, Any]]
+    warnings: list[str] = Field(default_factory=list)
     created_at: datetime
     completed_at: Optional[datetime]
 
@@ -40,6 +41,10 @@ class GenerationResponse(BaseModel):
     def sync_aliases(self):
         if self.name is None:
             self.name = self.nom
+        if not self.warnings and isinstance(self.config, dict):
+            raw_warnings = self.config.get("warnings")
+            if isinstance(raw_warnings, list):
+                self.warnings = [str(w) for w in raw_warnings]
         return self
 
     class Config:

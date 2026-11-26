@@ -53,9 +53,12 @@ class GeneratorService:
             zip_path = await engine.generate()
 
             # Mise à jour réussie
+            merged_config = dict(generation.config or {})
+            merged_config["warnings"] = list(engine.warnings)
             update_data = {
                 "statut": StatutGeneration.COMPLETED,
                 "url_zip": zip_path,
+                "config": merged_config,
                 "completed_at": datetime.utcnow(),
             }
             generation = await self.repo.update(generation, update_data)

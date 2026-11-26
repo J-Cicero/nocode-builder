@@ -1,10 +1,15 @@
+import json
 import os
+from pathlib import Path
+import re
+import unicodedata
 import zipfile
 import shutil
 import tempfile
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.projects.repository import ProjectRepository
 from app.modules.schema.repository import (
     SchemaRepository,
     TableSchemaRepository,
@@ -13,6 +18,20 @@ from app.modules.schema.repository import (
 )
 from app.modules.workflow_engine.repository import WorkflowRepository
 from app.modules.interface_builder.repository import InterfaceRepository, PageRepository, ComposantRepository, SectionRepository
+
+
+WEB_RUNTIME_DIR = Path(__file__).resolve().parent / "web_runtime"
+SUPPORTED_WEB_SECTIONS = frozenset(
+    {
+        "navbar",
+        "hero",
+        "text-section",
+        "stats-row",
+        "card-grid",
+        "data-table",
+        "form",
+    }
+)
 
 
 class GeneratorEngine:
@@ -36,9 +55,11 @@ class GeneratorEngine:
         self.field_repo = FieldRepository(db)
         self.rel_repo = RelationRepository(db)
         self.wf_repo = WorkflowRepository(db)
+        self.warnings: list[str] = []
 
     async def generate(self) -> str:
         """Génère le backend + frontend et retourne le chemin du ZIP"""
+        self.warnings = []
         temp_dir = tempfile.mkdtemp()
         
         try:
@@ -511,604 +532,140 @@ python-multipart==0.0.6
     # FRONTEND GENERATION
     # ─────────────────────────────────────────────────
 
+    @staticmethod
+    def _sanitize_npm_name(slug: str) -> str:
+        cleaned = re.sub(r"[^a-z0-9._-]+", "-", (slug or "").strip().lower())
+        cleaned = cleaned.strip(".-_")
+        cleaned = re.sub(r"-{2,}", "-", cleaned)[:100]
+        if not cleaned or not re.match(r"^[a-z0-9]", cleaned):
+            return "generated-web-app"
+        return cleaned
+
+    @staticmethod
+    def _sanitize_component_name(page_name: str, index: int, used: set[str]) -> str:
+        normalized = unicodedata.normalize("NFKD", page_name or "").encode("ascii", "ignore").decode("ascii")
+        tokens = re.findall(r"[A-Za-z0-9]+", normalized)
+        candidate = "".join(tok[0].upper() + tok[1:] for tok in tokens if tok)
+        if not candidate or not candidate[0].isalpha():
+            candidate = f"Page{index + 1}"
+        base_name = candidate
+        suffix = 2
+        while candidate in used:
+            candidate = f"{base_name}{suffix}"
+            suffix += 1
+        used.add(candidate)
+        return candidate
+
     async def _generate_frontend(self, base: str, pages: list, comp_repo, section_repo, tables: list):
-        front_dir = f"{base}/frontend"
-        os.makedirs(f"{front_dir}/src/pages", exist_ok=True)
-        os.makedirs(f"{front_dir}/src/api", exist_ok=True)
-        os.makedirs(f"{front_dir}/src/context", exist_ok=True)
-        
-        # package.json
-        # package.json avec Tailwind & Lucide
-        package_json = '''{
-  "name": "frontend",
-  "private": true,
-  "version": "1.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "axios": "^1.6.2",
-    "lucide-react": "^0.344.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.20.0"
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.0",
-    "autoprefixer": "^10.4.18",
-    "postcss": "^8.4.35",
-    "tailwindcss": "^3.4.1",
-    "vite": "^5.0.0"
-  }
-}'''
-        self._write_file(f"{front_dir}/package.json", package_json)
+        front_dir = Path(base) / "frontend"
+        shutil.copytree(
+            WEB_RUNTIME_DIR,
+            front_dir,
+            ignore=shutil.ignore_patterns("node_modules", "dist", "__pycache__", "*.pyc"),
+        )
 
-        # tailwind.config.js
-        tailwind_config = '''/** @type {import('tailwindcss').Config} */
-export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
-  theme: {
-    extend: {
-      colors: {
-        primary: {
-          DEFAULT: "#C4622D",
-          hover: "#A04E24",
-          light: "#FBF4E9",
-        },
-        secondary: "#D4A017",
-        dark: "#1A0E0A",
-      }
-    },
-  },
-  plugins: [],
-}'''
-        self._write_file(f"{front_dir}/tailwind.config.js", tailwind_config)
+        # Supprimer les pages d'exemple du runtime
+        pages_dir = front_dir / "src" / "pages"
+        if pages_dir.exists():
+            for existing in pages_dir.iterdir():
+                if existing.is_file() and existing.suffix in {".jsx", ".js"}:
+                    existing.unlink()
+        else:
+            pages_dir.mkdir(parents=True, exist_ok=True)
 
-        # postcss.config.js
-        postcss_config = '''export default {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-}'''
-        self._write_file(f"{front_dir}/postcss.config.js", postcss_config)
+        # Charger les métadonnées du projet
+        project = await ProjectRepository(self.db).get_by_tracking_id(self.project_id)
+        project_name = project.name if project and getattr(project, "name", None) else "Application Web"
+        project_slug = project.slug if project and getattr(project, "slug", None) else ""
+        project_theme = {}
+        if project and isinstance(getattr(project, "theme", None), dict):
+            project_theme = project.theme
 
-        # .env.example pour le frontend
-        frontend_env = '''# URL de base du backend API
-VITE_API_URL=http://localhost:8000/api
-'''
-        self._write_file(f"{front_dir}/.env.example", frontend_env)
+        # Mettre à jour package.json (nom de paquet npm sanitisé)
+        pkg_path = front_dir / "package.json"
+        pkg_data = json.loads(pkg_path.read_text(encoding="utf-8"))
+        pkg_data["name"] = self._sanitize_npm_name(project_slug)
+        pkg_path.write_text(json.dumps(pkg_data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-        # vite.config.js
-        vite_config = '''import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
+        sorted_pages = sorted(pages, key=lambda item: getattr(item, "ordre", 0) or 0)
+        site_pages: list[dict] = []
+        page_entries: list[tuple[int, str]] = []
+        used_names: set[str] = set()
+        unsupported_seen: list[str] = []
 
-export default defineConfig({
-  plugins: [react()],
-})'''
-        self._write_file(f"{front_dir}/vite.config.js", vite_config)
+        for idx, page in enumerate(sorted_pages):
+            raw_sections = await section_repo.get_by_page_id(page.tracking_id)
+            sorted_sections = sorted(raw_sections, key=lambda sec: getattr(sec, "ordre", 0) or 0)
+            serialized_sections: list[dict] = []
 
-        # index.html
-        index_html = '''<!doctype html>
-<html lang="fr">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Application Générée</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  </head>
-  <body class="bg-[#F8F9FA] text-[#1A0E0A] font-sans antialiased min-h-screen">
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>'''
-        self._write_file(f"{front_dir}/index.html", index_html)
+            for section in sorted_sections:
+                sec_type = section.type.value if hasattr(section.type, "value") else str(section.type)
+                if sec_type not in SUPPORTED_WEB_SECTIONS and sec_type not in unsupported_seen:
+                    unsupported_seen.append(sec_type)
+                serialized_sections.append(
+                    {
+                        "type": sec_type,
+                        "title": section.title,
+                        "config": section.config if isinstance(section.config, dict) else {},
+                        "styles": section.styles if isinstance(getattr(section, "styles", None), dict) else {},
+                        "connected_to": section.connecte_a,
+                    }
+                )
 
-        # src/main.jsx
-        main_jsx = '''import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App.jsx'
-import { ApiProvider } from './context/ApiContext.jsx'
-import './index.css'
+            page_path = (page.chemin or "").strip() or ("/" if idx == 0 else f"/page-{idx + 1}")
+            site_pages.append(
+                {
+                    "name": page.nom or f"Page {idx + 1}",
+                    "path": page_path,
+                    "is_home": bool(getattr(page, "est_accueil", False)),
+                    "sections": serialized_sections,
+                }
+            )
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <ApiProvider>
-      <App />
-    </ApiProvider>
-  </React.StrictMode>,
-)'''
-        self._write_file(f"{front_dir}/src/main.jsx", main_jsx)
+            comp_name = self._sanitize_component_name(page.nom or "", idx, used_names)
+            stub_code = (
+                "import React from 'react';\n"
+                "import PageRenderer from '../runtime/PageRenderer';\n"
+                "import siteConfig from '../site.config.json';\n\n"
+                f"export default function {comp_name}() {{\n"
+                f"  return <PageRenderer page={{siteConfig.pages[{idx}]}} />;\n"
+                "}\n"
+            )
+            (pages_dir / f"{comp_name}.jsx").write_text(stub_code, encoding="utf-8")
+            page_entries.append((idx, comp_name))
 
-        # src/index.css avec Tailwind directives
-        index_css = '''@tailwind base;
-@tailwind components;
-@tailwind utilities;
+        # Écrire src/pages/index.js sans aucune chaîne utilisateur dans le JS
+        index_lines = ["import siteConfig from '../site.config.json';"]
+        for _, comp_name in page_entries:
+            index_lines.append(f"import {comp_name} from './{comp_name}';")
+        index_lines.append("")
+        index_lines.append("export const pages = [")
+        for idx, comp_name in page_entries:
+            index_lines.append(f"  {{ path: siteConfig.pages[{idx}].path, Component: {comp_name} }},")
+        index_lines.append("];")
+        (pages_dir / "index.js").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
 
-body {
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-}
-'''
-        self._write_file(f"{front_dir}/src/index.css", index_css)
+        # Écrire src/site.config.json via json.dumps
+        site_config = {
+            "name": project_name,
+            "theme": project_theme,
+            "pages": site_pages,
+        }
+        (front_dir / "src" / "site.config.json").write_text(
+            json.dumps(site_config, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
 
-        # src/context/ApiContext.jsx
-        api_context = '''import React, { createContext, useState, useEffect } from 'react';
-import axios from 'axios';
-
-export const ApiContext = createContext(null);
-
-export function ApiProvider({ children }) {
-  const [api, setApi] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    const initializeApi = async () => {
-      try {
-        // Essayer d'obtenir la config du serveur
-        const fallbackUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-        const configUrl = `${fallbackUrl.replace('/api', '')}/config`;
-
-        const response = await axios.get(configUrl);
-        const { api_url } = response.data;
-
-        const apiInstance = axios.create({
-          baseURL: api_url,
-        });
-
-        apiInstance.interceptors.request.use(config => {
-          config.headers.Authorization = 'Bearer test-token';
-          return config;
-        });
-
-        setApi(apiInstance);
-      } catch (err) {
-        console.warn('Impossible de charger /config, utilisation du fallback', err);
-
-        // Fallback: utiliser VITE_API_URL
-        const fallbackUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-        const apiInstance = axios.create({
-          baseURL: fallbackUrl,
-        });
-
-        apiInstance.interceptors.request.use(config => {
-          config.headers.Authorization = 'Bearer test-token';
-          return config;
-        });
-
-        setApi(apiInstance);
-        setError('Configuration serveur non disponible, fallback utilisé');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initializeApi();
-  }, []);
-
-  return (
-    <ApiContext.Provider value={{ api, loading, error }}>
-      {children}
-    </ApiContext.Provider>
-  );
-}
-
-export function useApi() {
-  const context = React.useContext(ApiContext);
-  if (!context) {
-    throw new Error('useApi must be used within ApiProvider');
-  }
-  return context;
-}
-'''
-        self._write_file(f"{front_dir}/src/context/ApiContext.jsx", api_context)
-
-        # src/api/axios.js - Export une fonction qui attend le contexte
-        axios_js = '''import axios from 'axios';
-
-// Cette fonction est utilisée uniquement si ApiContext n'est pas disponible (fallback)
-export const createApiInstance = (baseURL) => {
-  const api = axios.create({
-    baseURL: baseURL || 'http://localhost:8000/api',
-  });
-
-  api.interceptors.request.use(config => {
-    config.headers.Authorization = 'Bearer test-token';
-    return config;
-  });
-
-  return api;
-};
-
-// Export par défaut pour backward compatibility
-export default createApiInstance('http://localhost:8000/api');
-'''
-        self._write_file(f"{front_dir}/src/api/axios.js", axios_js)
-
-        # Map table UUID to table Name
-        table_map = {t.tracking_id: t.name for t in tables}
-
-        # Generate pages
-        app_routes = []
-        app_imports = []
-        
-        for page in pages:
-            comps = await comp_repo.get_by_page_id(page.tracking_id)
-            sections = await section_repo.get_by_page_id(page.tracking_id)
-            page_name = self._capitalize(page.nom.replace(' ', ''))
-            page_file = f"{page_name}.jsx"
-            
-            page_content = self._generate_react_page(page_name, comps, sections, table_map)
-            self._write_file(f"{front_dir}/src/pages/{page_file}", page_content)
-            
-            app_imports.append(f"import {page_name} from './pages/{page_name}';")
-            app_routes.append(f'<Route path="{page.chemin}" element={{<{page_name} />}} />')
-
-        # src/App.jsx
-        app_jsx = f'''import React from 'react';
-import {{ BrowserRouter, Routes, Route }} from 'react-router-dom';
-import {{ useApi }} from './context/ApiContext';
-{"".join([f"{i}\\n" for i in app_imports])}
-
-function AppContent() {{
-  const {{ api, loading, error }} = useApi();
-
-  if (loading) {{
-    return (
-      <div style={{
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        height: '100vh',
-        fontSize: '18px'
-      }}>
-        Chargement de la configuration...
-      </div>
-    );
-  }}
-
-  if (error && error.includes('Configuration')) {{
-    console.warn(error);
-  }}
-
-  return (
-    <Routes>
-      {"".join([f"{r}\\n      " for r in app_routes])}
-    </Routes>
-  );
-}}
-
-function App() {{
-  return (
-    <BrowserRouter>
-      <AppContent />
-    </BrowserRouter>
-  );
-}}
-
-export default App;
-'''
-        self._write_file(f"{front_dir}/src/App.jsx", app_jsx)
-
-
-    def _generate_react_page(self, page_name: str, comps: list, sections: list, table_map: dict) -> str:
-        imports = ["import React, { useState, useEffect } from 'react';"]
-        imports.append("import { useApi } from '../context/ApiContext';")
-
-        state_declarations = []
-        effects = []
-        render_elements = []
-
-        # ── Sections générées depuis la BDD (styles + config de l'utilisateur) ──
-        for section in sorted(sections, key=lambda s: s.ordre):
-            styles = section.styles or {}
-            config = section.config or {}
-            sec_type = section.type if hasattr(section.type, 'value') else str(section.type)
-            if hasattr(sec_type, 'value'):
-                sec_type = sec_type.value
-
-            # Construire le style inline à partir de styles BDD
-            style_parts = []
-            if styles.get("backgroundColor"):
-                style_parts.append(f'backgroundColor: "{styles["backgroundColor"]}"')
-            if styles.get("color"):
-                style_parts.append(f'color: "{styles["color"]}"')
-            if styles.get("padding"):
-                style_parts.append(f'padding: "{styles["padding"]}"')
-            if styles.get("textAlign"):
-                style_parts.append(f'textAlign: "{styles["textAlign"]}"')
-            # Double braces → produces {{...}} in the f-string → renders as {object} in JSX
-            inner = ", ".join(style_parts) if style_parts else ""
-            style_str = "{{" + inner + "}}" if inner else "{{}}"
-
-            if sec_type in ("hero", "HERO"):
-                title = config.get("title", "Bienvenue")
-                subtitle = config.get("subtitle", "")
-                btn_text = config.get("buttonText", "Commencer")
-                btn_color = config.get("buttonColor", "#C4622D")
-                render_elements.append(f'''
-      <section style={style_str}>
-        <div style={{{{maxWidth: "1200px", margin: "0 auto", textAlign: "center"}}}}>
-          <h1 style={{{{fontSize: "2.5rem", fontWeight: "800", marginBottom: "1rem"}}}}>{title}</h1>
-          <p style={{{{fontSize: "1.1rem", marginBottom: "2rem", opacity: 0.85}}}}>{subtitle}</p>
-          <button style={{{{backgroundColor: "{btn_color}", color: "#fff", padding: "0.75rem 2rem", borderRadius: "0.75rem", border: "none", fontWeight: "bold", cursor: "pointer", fontSize: "1rem"}}}}>{btn_text}</button>
-        </div>
-      </section>''')
-
-            elif sec_type in ("navbar", "NAVBAR"):
-                title = config.get("title", page_name)
-                render_elements.append(f'''
-      <nav style={{{{...{style_str}, display: "flex", alignItems: "center", justifyContent: "space-between"}}}}>
-        <span style={{{{fontWeight: "800", fontSize: "1.25rem"}}}}>{title}</span>
-        <div style={{{{display: "flex", gap: "1.5rem"}}}}>
-          <a href="/" style={{{{textDecoration: "none", color: "inherit", opacity: 0.8}}}}>Accueil</a>
-          <a href="#" style={{{{textDecoration: "none", color: "inherit", opacity: 0.8}}}}>À propos</a>
-        </div>
-      </nav>''')
-
-            elif sec_type in ("text-section", "TEXT_SECTION"):
-                content = config.get("content", config.get("text", "Contenu de la section"))
-                heading = config.get("heading", config.get("title", ""))
-                render_elements.append(f'''
-      <section style={style_str}>
-        <div style={{{{maxWidth: "900px", margin: "0 auto"}}}}>
-          {f'<h2 style={{{{fontSize: "2rem", fontWeight: "700", marginBottom: "1rem"}}}}>{heading}</h2>' if heading else ""}
-          <p style={{{{lineHeight: "1.8", fontSize: "1rem"}}}}>{content}</p>
-        </div>
-      </section>''')
-
-            elif sec_type in ("stats-row", "STATS_ROW"):
-                stats = config.get("stats", [
-                    {"label": "Utilisateurs", "value": "10K+"},
-                    {"label": "Projets", "value": "500+"},
-                    {"label": "Satisfaction", "value": "98%"},
-                ])
-                stats_html = "".join([
-                    f'<div style={{{{textAlign: "center", flex: 1}}}}>'
-                    f'<div style={{{{fontSize: "2rem", fontWeight: "800"}}}}>{s.get("value", "—")}</div>'
-                    f'<div style={{{{opacity: 0.7, marginTop: "0.25rem"}}}}>{s.get("label", "")}</div>'
-                    f'</div>'
-                    for s in stats
-                ])
-                render_elements.append(f'''
-      <section style={style_str}>
-        <div style={{{{display: "flex", gap: "2rem", justifyContent: "center", flexWrap: "wrap", maxWidth: "1200px", margin: "0 auto"}}}}>
-          {stats_html}
-        </div>
-      </section>''')
-
-            elif sec_type in ("card-grid", "CARD_GRID"):
-                cards = config.get("cards", [
-                    {"title": "Feature 1", "description": "Description de la feature 1"},
-                    {"title": "Feature 2", "description": "Description de la feature 2"},
-                    {"title": "Feature 3", "description": "Description de la feature 3"},
-                ])
-                cards_html = "".join([
-                    f'<div style={{{{background: "rgba(255,255,255,0.08)", borderRadius: "1rem", padding: "1.5rem", border: "1px solid rgba(255,255,255,0.15)"}}}}>'
-                    f'<h3 style={{{{fontWeight: "700", marginBottom: "0.5rem"}}}}>{c.get("title", "Carte")}</h3>'
-                    f'<p style={{{{opacity: 0.75, fontSize: "0.9rem"}}}}>{c.get("description", "")}</p>'
-                    f'</div>'
-                    for c in cards
-                ])
-                render_elements.append(f'''
-      <section style={style_str}>
-        <div style={{{{maxWidth: "1200px", margin: "0 auto"}}}}>
-          {f'<h2 style={{{{fontSize: "1.75rem", fontWeight: "700", marginBottom: "1.5rem"}}}}>{config.get("title", "")}</h2>' if config.get("title") else ""}
-          <div style={{{{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: "1.5rem"}}}}>
-            {cards_html}
-          </div>
-        </div>
-      </section>''')
-
-            elif sec_type in ("form", "FORM"):
-                fields = config.get("fields", [{"label": "Email", "type": "email", "placeholder": "votre@email.com"}])
-                btn_label = config.get("submitLabel", "Envoyer")
-                fields_html = "".join([
-                    f'<div style={{{{marginBottom: "1rem"}}}}>'
-                    f'<label style={{{{display: "block", marginBottom: "0.25rem", fontWeight: "600", fontSize: "0.85rem"}}}}>{f.get("label", "Champ")}</label>'
-                    f'<input type="{f.get("type", "text")}" placeholder="{f.get("placeholder", "")}" '
-                    f'style={{{{width: "100%", padding: "0.65rem 1rem", borderRadius: "0.5rem", border: "1px solid #d1d5db", fontSize: "1rem"}}}}/>'
-                    f'</div>'
-                    for f in fields
-                ])
-                render_elements.append(f'''
-      <section style={style_str}>
-        <div style={{{{maxWidth: "600px", margin: "0 auto"}}}}>
-          <form style={{{{background: "rgba(255,255,255,0.08)", padding: "2rem", borderRadius: "1rem", border: "1px solid rgba(255,255,255,0.15)"}}}}>
-            {fields_html}
-            <button type="submit" style={{{{width: "100%", padding: "0.75rem", background: "#C4622D", color: "#fff", border: "none", borderRadius: "0.5rem", fontWeight: "bold", cursor: "pointer", fontSize: "1rem"}}}}>{btn_label}</button>
-          </form>
-        </div>
-      </section>''')
-
-            elif sec_type in ("data-table", "DATA_TABLE"):
-                title = config.get("title", "Données")
-                render_elements.append(f'''
-      <section style={style_str}>
-        <div style={{{{maxWidth: "1200px", margin: "0 auto"}}}}>
-          <h2 style={{{{fontSize: "1.5rem", fontWeight: "700", marginBottom: "1rem"}}}}>{title}</h2>
-          <div style={{{{overflowX: "auto", borderRadius: "0.75rem", border: "1px solid rgba(255,255,255,0.15)"}}}}>
-            <table style={{{{width: "100%", borderCollapse: "collapse", fontSize: "0.9rem"}}}}>
-              <thead style={{{{background: "rgba(255,255,255,0.08)"}}}}>
-                <tr>
-                  <th style={{{{padding: "0.75rem 1rem", textAlign: "left"}}}}>Nom</th>
-                  <th style={{{{padding: "0.75rem 1rem", textAlign: "left"}}}}>Détails</th>
-                  <th style={{{{padding: "0.75rem 1rem", textAlign: "right"}}}}>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td style={{{{padding: "0.75rem 1rem", opacity: 0.6}}}} colSpan="3">Aucune donnée pour le moment</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>''')
-
-            else:
-                # Section générique
-                render_elements.append(f'''
-      <section style={style_str}>
-        <div style={{{{maxWidth: "1200px", margin: "0 auto"}}}}>
-          <p>{config.get("content", config.get("title", sec_type))}</p>
-        </div>
-      </section>''')
-
-        # ── Composants ReactFlow (drag-and-drop) ──
-        form_tables = set()
-        for comp in comps:
-            table_name = table_map.get(comp.connecte_a)
-            ui_type = comp.config.get("uiType") if comp.config else "text"
-            if table_name and ui_type in ["input", "textarea", "dropdown", "checkbox", "button"]:
-                form_tables.add(table_name)
-
-        # Ajouter le hook useApi au début
-        state_declarations.insert(0, "const { api } = useApi();")
-
-        for table in form_tables:
-            state_declarations.append(f"const [form{self._capitalize(table)}, setForm{self._capitalize(table)}] = useState({{}});")
-            state_declarations.append(f'''
-  const handleSubmit{self._capitalize(table)} = async (e) => {{
-    e.preventDefault();
-    try {{
-      await api.post('/{table}/', form{self._capitalize(table)});
-      alert('Succès !');
-      window.location.reload();
-    }} catch (err) {{
-      console.error(err);
-      alert('Erreur lors de la soumission.');
-    }}
-  }};
-''')
-
-        current_form = None
-        
-        for comp in sorted(comps, key=lambda x: x.ordre):
-            ui_type = comp.config.get("uiType") if comp.config else "text"
-            props = comp.config.get("props", {}) if comp.config else {}
-            table_name = table_map.get(comp.connecte_a)
-            
-            if table_name and table_name in form_tables and current_form != table_name:
-                if current_form:
-                    render_elements.append("</form>")
-                current_form = table_name
-                render_elements.append(f'<form onSubmit={{handleSubmit{self._capitalize(table_name)}}} className="card">')
-                
-            elif current_form and (not table_name or table_name != current_form):
-                render_elements.append("</form>")
-                current_form = None
-
-            if ui_type == "title":
-                render_elements.append(f'<h2 className="text-2xl font-bold text-[#1A0E0A] font-serif mb-4">{props.get("text", "Titre")}</h2>')
-            elif ui_type == "text":
-                render_elements.append(f'<p className="text-gray-600 text-sm leading-relaxed mb-4">{props.get("text", "Texte")}</p>')
-            elif ui_type in ["input", "textarea"]:
-                if table_name:
-                    field_name = props.get("label", "champ").lower().replace(" ", "_").replace("'", "")
-                    render_elements.append(f'''
-        <div className="space-y-1.5 mb-4">
-          <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">{props.get('label', 'Champ')}</label>
-          <input className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none text-sm transition-all" placeholder="{props.get('placeholder', '')}" onChange={{e => setForm{self._capitalize(table_name)}({{...form{self._capitalize(table_name)}, {field_name}: e.target.value}})}} required />
-        </div>''')
-                else:
-                    render_elements.append(f'''
-        <div className="space-y-1.5 mb-4">
-          <label className="text-xs font-bold text-gray-700 uppercase tracking-wider">{props.get('label', 'Champ')}</label>
-          <input className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#C4622D] outline-none text-sm transition-all" placeholder="{props.get('placeholder', '')}" />
-        </div>''')
-            elif ui_type == "button":
-                if current_form:
-                    render_elements.append(f'''<button type="submit" className="w-full py-3 px-6 bg-[#C4622D] hover:bg-[#A04E24] text-white font-bold rounded-xl shadow-md shadow-[#C4622D]/20 transition-all cursor-pointer">{props.get("label", "Valider")}</button>''')
-                else:
-                    render_elements.append(f'''<button className="py-2.5 px-6 bg-[#C4622D] hover:bg-[#A04E24] text-white font-bold rounded-xl shadow-md shadow-[#C4622D]/20 transition-all cursor-pointer">{props.get("label", "Bouton")}</button>''')
-            elif ui_type == "dataList":
-                if table_name:
-                    state_name = f"{table_name}List"
-                    state_declarations.append(f"const [{state_name}, set{self._capitalize(table_name)}List] = useState([]);")
-                    effects.append(f'''
-  useEffect(() => {{
-    api.get('/{table_name}/').then(res => set{self._capitalize(table_name)}List(res.data)).catch(console.error);
-  }}, []);
-''')
-                    render_elements.append(f'''
-      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden mb-6">
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-bold text-base text-[#1A0E0A]">{props.get('title', table_name.capitalize())}</h3>
-          <span className="text-xs font-semibold px-2.5 py-1 bg-[#FBF4E9] text-[#C4622D] rounded-full border border-[#E8D9C4]">
-            {{{state_name}.length}} enregistrements
-          </span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-sm">
-            <thead className="bg-[#FBF4E9]/50 text-xs text-[#7A5C44] uppercase font-bold tracking-wider">
-              <tr>
-                <th className="px-6 py-3.5">Élément</th>
-                <th className="px-6 py-3.5">Détails</th>
-                <th className="px-6 py-3.5 text-right">Statut</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {{{state_name}.length === 0 ? (
-                <tr>
-                  <td colSpan="3" className="px-6 py-8 text-center text-gray-400 text-sm">
-                    Aucune donnée enregistrée pour le moment.
-                  </td>
-                </tr>
-              ) : (
-                {state_name}.map((item, idx) => (
-                  <tr key={{idx}} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4 font-semibold text-gray-900">
-                      {{item.name || item.nom || item.title || item.titre || `Item #${{idx + 1}}`}}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {{item.description || item.email || item.statut || "Donnée active"}}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        Actif
-                      </span>
-                    </td>
-                  </tr>
-                ))
-              )}}
-            </tbody>
-          </table>
-        </div>
-      </div>''')
-                else:
-                    render_elements.append("<div className='p-6 bg-white border border-gray-200 rounded-2xl text-gray-400 text-sm mb-4'>Liste de données</div>")
-            elif ui_type == "card":
-                render_elements.append(f'''<div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm hover:shadow-md transition-shadow mb-4"><h3 className="font-bold text-lg text-gray-900 mb-2">{props.get("title", "Carte")}</h3><p className="text-gray-600 text-sm">{props.get("text", "")}</p></div>''')
-            elif ui_type == "divider":
-                render_elements.append('<hr className="my-8 border-t border-gray-200" />')
-            elif ui_type == "spacer":
-                render_elements.append('<div className="h-6"></div>')
-            
-        if current_form:
-            render_elements.append("</form>")
-
-        react_code = f'''{"".join([i + "\n" for i in imports])}
-
-export default function {page_name}() {{
-  {"".join([s + "\n  " for s in state_declarations])}
-  {"".join([e + "\n  " for e in effects])}
-  return (
-    <div>
-      {"".join([r + "\n      " for r in render_elements])}
-    </div>
-  );
-}}
-'''
-        return react_code
+        # Avertissements pour sections non prises en charge dans l'export web
+        self.warnings = [f"web: section '{sec_type}' non rendue" for sec_type in unsupported_seen]
+        if self.warnings:
+            notes_lines = [
+                "# Notes d'export web",
+                "",
+                "Les types de sections suivants ne sont pas pris en charge dans l'export web statique :",
+                "",
+            ] + [f"- {w}" for w in self.warnings]
+            (front_dir / "EXPORT_NOTES.md").write_text("\n".join(notes_lines) + "\n", encoding="utf-8")
 
     async def _create_zip(self, source_dir: str) -> str:
         """Crée un ZIP du répertoire généré"""
