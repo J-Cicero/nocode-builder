@@ -174,15 +174,16 @@ done
 [[ "$C_FAILS" -eq 0 ]] && report_step "c" "201" "3/3 ZIP générés avec backend/main.py" "PASS" || report_step "c" "n/a" "c_fails=$C_FAILS" "FAIL"
 [[ "$D_FAILS" -eq 0 ]] && report_step "d" "404" "isolation B=404 (12/12 appels sur les 3 projets)" "PASS" || report_step "d" "n/a" "d_fails=$D_FAILS" "FAIL"
 
-# e. Atomicité avec TEST_FAIL_TEMPLATE_INSTANTIATION=1
+# e. Atomicité avec ENABLE_TEST_HOOKS=1 et TEST_FAIL_TEMPLATE_INSTANTIATION=1
 db_counts_user_a() {
   docker compose -f "$COMPOSE_FILE" exec -T svc-nocode-core-db \
     psql -U "${NOCODE_DB_USER:-nocode}" -d "${NOCODE_DB_NAME:-nocode_builder_v2}" -Atc \
     "SELECT (SELECT count(*) FROM nocode_projects WHERE owner_id = '$SUB_A') || ',' || (SELECT count(*) FROM schemas s JOIN nocode_projects p ON s.project_id = p.tracking_id WHERE p.owner_id = '$SUB_A') || ',' || (SELECT count(*) FROM tables_schema t JOIN schemas s ON t.schema_id = s.tracking_id JOIN nocode_projects p ON s.project_id = p.tracking_id WHERE p.owner_id = '$SUB_A') || ',' || (SELECT count(*) FROM interfaces i JOIN nocode_projects p ON i.project_id = p.tracking_id WHERE p.owner_id = '$SUB_A');"
 }
 
+COMPOSE_TEST_FILE="$ROOT_DIR/infra/docker-compose.test.yml"
 COUNTS_BEFORE="$(db_counts_user_a)"
-TEST_FAIL_TEMPLATE_INSTANTIATION=1 docker compose -f "$COMPOSE_FILE" up -d --no-deps --wait svc-nocode-core >/dev/null
+ENABLE_TEST_HOOKS=1 TEST_FAIL_TEMPLATE_INSTANTIATION=1 docker compose -f "$COMPOSE_FILE" -f "$COMPOSE_TEST_FILE" up -d --no-deps --wait svc-nocode-core >/dev/null
 OUT_FAIL="$(http_call POST "$GATEWAY_URL/api/nocode/api/templates/saas-dashboard/instantiate" "{\"name\":\"Atomic Fail $RUN_ID\"}" "$TOKEN_A")"
 LOG_LINE="$(docker compose -f "$COMPOSE_FILE" logs --tail=80 svc-nocode-core | grep -F "TEST_FAIL_TEMPLATE_INSTANTIATION=1" || true)"
 docker compose -f "$COMPOSE_FILE" up -d --no-deps --wait svc-nocode-core >/dev/null

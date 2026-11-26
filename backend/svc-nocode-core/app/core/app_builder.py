@@ -160,8 +160,11 @@ async def _persist_interface(
         await db.flush()
         pages_created.append(page_data.name)
 
-        # Env-only atomicity test hook (never reads HTTP headers; never enabled in production).
-        if os.getenv("TEST_FAIL_TEMPLATE_INSTANTIATION", "").strip() == "1":
+        # Env-only atomicity test hook (never reads HTTP headers; requires explicit ENABLE_TEST_HOOKS=1).
+        if (
+            os.getenv("ENABLE_TEST_HOOKS", "").strip() == "1"
+            and os.getenv("TEST_FAIL_TEMPLATE_INSTANTIATION", "").strip() == "1"
+        ):
             logger.error("TEST_FAIL_TEMPLATE_INSTANTIATION=1 triggered simulated failure inside transaction")
             raise RuntimeError("Simulated transactional failure during section persistence")
 

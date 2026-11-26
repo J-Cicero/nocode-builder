@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "nocode"
     POSTGRES_PASSWORD: str = "nocode"
     POSTGRES_DB: str = "nocode_builder_v2"
+    SQL_ECHO: bool = False
 
     # ─── Security (Sprint 2) ─────────────────────────────────────────────────────
     SECRET_KEY: str
