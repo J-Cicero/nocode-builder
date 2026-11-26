@@ -81,8 +81,8 @@ EMAIL="lot5-${RUN_ID}@example.com"
 PASS="Lot5StrongPass!2026"
 PROJ_LOG_NAME="SecretLogCheckProj-${RUN_ID}"
 
-http_call POST "$GATEWAY_URL/api/iam/api/v1/auth/register" "{\"email\":\"$EMAIL\",\"password\":\"$PASS\",\"full_name\":\"Lot5 User\"}" >/dev/null
-LOGIN_OUT="$(http_call POST "$GATEWAY_URL/api/iam/api/v1/auth/login" "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}")"
+http_call POST "$GATEWAY_URL/api/iam/auth/register" "{\"email\":\"$EMAIL\",\"name\":\"Lot5\",\"surname\":\"User\",\"password\":\"$PASS\"}" >/dev/null
+LOGIN_OUT="$(http_call POST "$GATEWAY_URL/api/iam/auth/login" "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}")"
 TOKEN="$(printf '%s' "${LOGIN_OUT#*$'\n'}" | json_field access_token)"
 
 # i. Partie 0 : hook sans ENABLE_TEST_HOOKS -> 201 ; logs SQL sans INSERT INTO / email / nom de projet
@@ -117,10 +117,10 @@ done
 # Projet mobile avec les 3 types mobiles
 RES_MOB="$(http_call POST "$GATEWAY_URL/api/nocode/api/templates/saas-dashboard/instantiate" "{\"name\":\"Lot5 Mobile $RUN_ID\"}" "$TOKEN")"
 MOB_PID="$(printf '%s' "${RES_MOB#*$'\n'}" | json_field tracking_id)"
-IFACE_JSON="$(http_call GET "$GATEWAY_URL/api/nocode/api/interfaces/project/$MOB_PID" "" "$TOKEN")"
+IFACE_JSON="$(http_call GET "$GATEWAY_URL/api/nocode/api/interface/$MOB_PID" "" "$TOKEN")"
 MOB_PAGE_ID="$(printf '%s' "${IFACE_JSON#*$'\n'}" | python3 -c 'import json,sys; d=json.loads(sys.stdin.read()); print(d["pages"][0]["tracking_id"])')"
 for mtype in mobile-header mobile-card-list bottom-nav; do
-  http_call POST "$GATEWAY_URL/api/nocode/api/interfaces/pages/$MOB_PAGE_ID/sections" "{\"type\":\"$mtype\",\"title\":\"Sec $mtype\",\"ordre\":99,\"config\":{}}" "$TOKEN" >/dev/null
+  http_call POST "$GATEWAY_URL/api/nocode/api/interface/pages/$MOB_PAGE_ID/sections" "{\"type\":\"$mtype\",\"title\":\"Sec $mtype\",\"ordre\":99,\"config\":{}}" "$TOKEN" >/dev/null
 done
 PROJECT_IDS+=("$MOB_PID")
 PROJECT_LABELS+=("mobile")
@@ -128,9 +128,7 @@ PROJECT_LABELS+=("mobile")
 # Projet malicieux (étape f)
 RES_MAL="$(http_call POST "$GATEWAY_URL/api/nocode/api/templates/saas-dashboard/instantiate" "{\"name\":\"Mon \\\"Projet\\\" {Test} $RUN_ID\"}" "$TOKEN")"
 MAL_PID="$(printf '%s' "${RES_MAL#*$'\n'}" | json_field tracking_id)"
-MAL_IFACE="$(http_call GET "$GATEWAY_URL/api/nocode/api/interfaces/project/$MAL_PID" "" "$TOKEN")"
-MAL_IFACE_ID="$(printf '%s' "${MAL_IFACE#*$'\n'}" | json_field tracking_id)"
-http_call POST "$GATEWAY_URL/api/nocode/api/interfaces/$MAL_IFACE_ID/pages" "{\"nom\":\"x\\\"); alert(1); //\",\"chemin\":\"/malicious\",\"type_page\":\"desktop\",\"ordre\":10}" "$TOKEN" >/dev/null
+http_call POST "$GATEWAY_URL/api/nocode/api/interface/$MAL_PID/pages" "{\"nom\":\"x\\\"); alert(1); //\",\"chemin\":\"/malicious\",\"type_page\":\"desktop\",\"ordre\":10}" "$TOKEN" >/dev/null
 PROJECT_IDS+=("$MAL_PID")
 PROJECT_LABELS+=("malicious")
 
