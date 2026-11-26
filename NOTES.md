@@ -100,3 +100,18 @@ Les points suivants ont été constatés lors de l'audit et consignés ici **san
 1. **`projects/repository.py`** : modifié au LOT 4 uniquement pour ajouter `_unique_slug()` afin d'éviter la violation de contrainte `UNIQUE(slug)` lors de l'instanciation multiple d'un template sous le même nom (étape `f`).
 2. **Affichage SQL (`echo`)** : `backend/svc-nocode-core/app/core/database.py` (ligne 8) définit `echo=settings.ENVIRONMENT == "development"` (`ENVIRONMENT` vaut `"development"` par défaut dans `config.py`), ce qui logue les requêtes SQL et leurs paramètres. `svc-iam` n'active pas `echo=True`. Hors périmètre de correction LOT 4b (noté pour un lot ultérieur).
 3. **Types `organization_id`, `company_id`, `product_id` (`number` vs `UUID`)** : incohérence conservée pour décision produit ultérieure (les tables générées par `generator_engine.py` utilisent un `id` `Integer` auto-incrémenté côté backend exporté, tandis que `nocode-core` utilise des `tracking_id` UUID).
+
+## Lot 5 — Générateur web : socle statique React + Vite (`web_runtime`)
+
+- **Versions npm exactes retenues dans `backend/svc-nocode-core/app/modules/generator/web_runtime/package.json`** (vérifiées via `npm view <pkg> time --json` le 2026-11-26, toutes publiées depuis au moins 14 jours) :
+  - `react`: `19.3.1` (publiée le `2026-10-14T16:47:15.290Z`)
+  - `react-dom`: `19.3.1` (publiée le `2026-10-14T16:49:10.081Z`)
+  - `react-router-dom`: `7.18.5` (publiée le `2026-10-27T21:14:19.826Z`)
+  - `vite`: `8.3.8` (publiée le `2026-11-11T02:49:46.387Z`)
+  - `@vitejs/plugin-react`: `6.3.0` (publiée le `2026-11-09T06:12:31.033Z`)
+  - `vitest`: `5.1.0` (publiée le `2026-11-02T16:12:37.770Z`)
+- **Constats hors périmètre (signalés sans correction)** :
+  - `backend/svc-nocode-core/app/modules/ai/crypto.py:22` dépend encore de `settings.ENVIRONMENT != "development"` pour émettre un avertissement lorsque `AI_KEYS_ENCRYPTION_KEY` est absente.
+  - `FieldType.DATETIME` (`"datetime"`) est absent de `GeneratorEngine.TYPE_MAP` (`backend/svc-nocode-core/app/modules/generator/generator_engine.py:21-29`) et retombe sur `("String", "str")` dans le backend généré (à traiter au Lot 6/7).
+  - Aucun type `uuid` ou `reference` n'existe dans `FieldType` (`backend/svc-nocode-core/app/modules/schema/models.py:10-18`) ; les clés étrangères de templates utilisent `number` (mappé vers `Float`/`float`).
+  - `preview_renderer.py` présente des écarts documentés dans `docs/section-config.md` (`text-section`, sections mobiles non gérées, `navbar.links` supposé uniquement objet).

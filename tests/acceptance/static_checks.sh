@@ -218,4 +218,90 @@ if check_no_monkeypatch "$TMP_DIR/bad_mp" >/dev/null 2>&1; then
 fi
 echo "[static:anti_monkeypatch_selftest] Monkeypatch témoin détecté | PASS"
 
+# 7. Zéro dangerouslySetInnerHTML dans web_runtime/src + auto-test
+check_no_dangerous_html() {
+  local target_dir="$1"
+  "$VENV_PY" - "$target_dir" <<'PY'
+import pathlib, sys
+root = pathlib.Path(sys.argv[1])
+hits = []
+for f in sorted(root.rglob("*")):
+    if f.is_file() and f.suffix in {".js", ".jsx", ".ts", ".tsx"}:
+        if "dangerouslySetInnerHTML" in f.read_text(encoding="utf-8", errors="replace"):
+            hits.append(str(f))
+if hits:
+    print(f"dangerouslySetInnerHTML détecté: {hits}")
+    sys.exit(1)
+PY
+}
+
+WEB_RT_DIR="$ROOT_DIR/backend/svc-nocode-core/app/modules/generator/web_runtime"
+check_no_dangerous_html "$WEB_RT_DIR/src"
+echo "[static:no_dangerous_html] 0 dangerouslySetInnerHTML dans web_runtime/src | PASS"
+
+mkdir -p "$TMP_DIR/bad_jsx"
+cat > "$TMP_DIR/bad_jsx/Bad.jsx" <<'EOF'
+export default function Bad() { return <div dangerouslySetInnerHTML={{__html: "x"}} />; }
+EOF
+if check_no_dangerous_html "$TMP_DIR/bad_jsx" >/dev/null 2>&1; then
+  echo "[static:no_dangerous_html_selftest] FAIL: dangerouslySetInnerHTML témoin non détecté"
+  exit 1
+fi
+echo "[static:no_dangerous_html_selftest] dangerouslySetInnerHTML témoin détecté | PASS"
+
+# 8. Présence de backend/svc-nocode-core/.dockerignore contenant node_modules + auto-test
+check_dockerignore() {
+  local target_file="$1"
+  "$VENV_PY" - "$target_file" <<'PY'
+import pathlib, sys
+p = pathlib.Path(sys.argv[1])
+if not p.is_file():
+    print(f"Fichier absent: {p}")
+    sys.exit(1)
+lines = [l.strip() for l in p.read_text(encoding="utf-8", errors="replace").splitlines()]
+if not any("node_modules" in l and not l.startswith("#") for l in lines):
+    print(f"node_modules absent de {p}")
+    sys.exit(1)
+PY
+}
+
+check_dockerignore "$ROOT_DIR/backend/svc-nocode-core/.dockerignore"
+echo "[static:dockerignore] backend/svc-nocode-core/.dockerignore contient node_modules | PASS"
+
+printf 'dist\n' > "$TMP_DIR/bad.dockerignore"
+if check_dockerignore "$TMP_DIR/bad.dockerignore" >/dev/null 2>&1; then
+  echo "[static:dockerignore_selftest] FAIL: .dockerignore sans node_modules non détecté"
+  exit 1
+fi
+echo "[static:dockerignore_selftest] .dockerignore témoin sans node_modules détecté | PASS"
+
+# 9. Aucun ^ ni ~ dans web_runtime/package.json (dependencies / devDependencies) + auto-test
+check_exact_npm_versions() {
+  local pkg_file="$1"
+  "$VENV_PY" - "$pkg_file" <<'PY'
+import json, pathlib, sys
+data = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+bad = []
+for sec in ("dependencies", "devDependencies"):
+    for name, ver in (data.get(sec) or {}).items():
+        if "^" in str(ver) or "~" in str(ver):
+            bad.append(f"{sec}.{name}={ver}")
+if bad:
+    print(f"Plages non exactes détectées: {bad}")
+    sys.exit(1)
+PY
+}
+
+check_exact_npm_versions "$WEB_RT_DIR/package.json"
+echo "[static:exact_npm_versions] Versions exactes (sans ^ ni ~) dans web_runtime/package.json | PASS"
+
+cat > "$TMP_DIR/bad_package.json" <<'EOF'
+{"dependencies":{"react":"^19.3.1"},"devDependencies":{"vite":"~8.3.8"}}
+EOF
+if check_exact_npm_versions "$TMP_DIR/bad_package.json" >/dev/null 2>&1; then
+  echo "[static:exact_npm_versions_selftest] FAIL: versions ^/~ témoins non détectées"
+  exit 1
+fi
+echo "[static:exact_npm_versions_selftest] Versions ^/~ témoins détectées | PASS"
+
 echo "=== RESULTAT STATIC_CHECKS: 100% PASS ==="

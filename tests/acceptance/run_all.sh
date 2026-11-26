@@ -18,6 +18,9 @@ bash "$DIR/lot4.sh"
 echo ">>> Execution du lot 4b..."
 bash "$DIR/lot4b.sh"
 
+echo ">>> Execution du lot 5..."
+bash "$DIR/lot5.sh"
+
 echo ">>> Execution du lot 3 live (optionnel)..."
 bash "$DIR/lot3_live.sh"
 
